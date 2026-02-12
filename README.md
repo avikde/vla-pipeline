@@ -3,8 +3,8 @@
 Vision-Language-Action model integration with the SO-101 robot arm using MuJoCo simulation and SmolVLA.
 
 Software used:
-- JAX 0.9.0.1 with CUDA support
-- PyTorch 2.7.1
+- JAX 0.9.0.1 with CUDA 12 support
+- **PyTorch 2.10.0 with CUDA 12.8** (need CUDA 12.8 for Blackwell/sm_120 support)
 - LeRobot 0.4.3 with SmolVLA
 - MuJoCo + MJX
 
@@ -57,6 +57,11 @@ pip install "jax[cuda12]"
 **Install MuJoCo and MJX (GPU-accelerated physics):**
 ```bash
 pip install mujoco mujoco-mjx
+```
+
+**Install PyTorch 2.10.0 with CUDA 12.8 (for RTX 5070 Ti Blackwell support):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
 **Install LeRobot with SmolVLA support:**
@@ -141,14 +146,20 @@ The model automatically downloads (~1.8GB) on first use.
 
 ## GPU Considerations
 
-**NVIDIA RTX 5070ti mobile (12GB VRAM) - RECOMMENDED:**
-- ✅ SmolVLA inference: ~2-3GB (plenty of headroom)
-- ✅ Batch inference: Can run multiple parallel rollouts
-- ✅ Fine-tuning: ~8-10GB (if training on custom tasks)
+**Performance:**
+- SmolVLA inference: ~2-3GB VRAM
+- MJX physics: Batch size 256 fits comfortably in 12GB VRAM
+- Combined GPU usage: ~5-8GB during active VLA + physics
 
-**Performance notes:**
-- Plug in laptop to get max GPU power
-- Batch size 256 fits in VRAM for MJX physics simulation
+**Performance tips:**
+- Plug in laptop to get max GPU power (important for mobile GPUs)
+- Monitor GPU usage with `nvidia-smi` during training
+
+Performance Summary on my laptop (Zen 5 CPU, RTX 5070ti mobile GPU):
+- GPU: ~6-7ms average (from earlier test)
+- CPU: ~3-4ms average (post-warmup)
+- CPU cold-start: ~2.8 seconds (one-time penalty)
+- GPU cold-start: ~7-10ms (minimal penalty)
 
 ## Advanced: Fine-tuning (Optional)
 

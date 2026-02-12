@@ -32,13 +32,14 @@ def render_camera(camera_name):
     pixels = renderer.render()
     return pixels
 
-def preprocess_image(rgb_image, target_size=256):
+def preprocess_image(rgb_image, target_size=256, device='cpu'):
     """
     Preprocess image for VLA input.
     - Convert to PIL Image
     - Resize to target_size x target_size (256x256 for SmolVLA)
     - Convert to tensor
     - Normalize to [0, 1]
+    - Move to specified device
     """
     # Convert numpy to PIL
     pil_img = Image.fromarray(rgb_image)
@@ -52,12 +53,18 @@ def preprocess_image(rgb_image, target_size=256):
     # Add batch dimension [1, 3, 256, 256]
     img_tensor = img_tensor.unsqueeze(0)
 
+    # Move to device
+    img_tensor = img_tensor.to(device)
+
     return img_tensor
 
 # Load SmolVLA policy (pretrained on SO-101)
 print("Loading SmolVLA pretrained model (~1.8GB)...")
 print("This may take a minute on first run...")
-policy = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base").eval()
+# Use GPU (PyTorch 2.10.0 + CUDA 12.8 has full Blackwell support!)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
+policy = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base").to(device).eval()
 print("✓ SmolVLA loaded successfully")
 
 # Create preprocessor and postprocessor
@@ -87,17 +94,17 @@ for step in range(num_steps):
     img_top = render_camera('top_down')
     img_wrist = render_camera('wrist_cam')
 
-    # Preprocess images for VLA
-    img_third_tensor = preprocess_image(img_third)
-    img_top_tensor = preprocess_image(img_top)
-    img_wrist_tensor = preprocess_image(img_wrist)
+    # Preprocess images for VLA (move to device)
+    img_third_tensor = preprocess_image(img_third, device=device)
+    img_top_tensor = preprocess_image(img_top, device=device)
+    img_wrist_tensor = preprocess_image(img_wrist, device=device)
 
     # Create observation dict (use camera1, camera2, camera3 for SmolVLA)
     observation = {
         'observation.images.camera1': img_third_tensor,  # Third person
         'observation.images.camera2': img_top_tensor,     # Top down
         'observation.images.camera3': img_wrist_tensor,   # Wrist cam
-        'observation.state': torch.from_numpy(data.qpos[:6]).float().unsqueeze(0),  # 6 DOF
+        'observation.state': torch.from_numpy(data.qpos[:6]).float().unsqueeze(0).to(device),  # 6 DOF
         'task': task_instruction,  # String, not list
     }
 
@@ -128,7 +135,7 @@ for step in range(num_steps):
     mujoco.mj_step(model, data)
 
     if step % 20 == 0:
-        print(f"  Step {step}/{num_steps}: actions = {robot_actions[:3]:.3f} ...")
+        print(f"  Step {step}/{num_steps}: actions = [{robot_actions[0]:.3f}, {robot_actions[1]:.3f}, {robot_actions[2]:.3f}] ...")
 
 print(f"✓ Completed {num_steps} simulation steps")
 
@@ -180,6 +187,7 @@ info_text = f"""SmolVLA Inference Demo
 
 Model: lerobot/smolvla_base
 Parameters: 450M
+Device: {device.upper()}
 Task: {task_instruction}
 
 Robot: SO-101 (6 DOF)
