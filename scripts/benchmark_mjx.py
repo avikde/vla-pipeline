@@ -5,7 +5,7 @@ import time
 
 print("GPU:", jax.devices())
 
-model = mujoco.MjModel.from_xml_path('assets/franka_mjx_simple.xml')
+model = mujoco.MjModel.from_xml_path('assets/so101/so101.xml')
 mjx_model = mjx.put_model(model)
 
 # Test with different batch sizes

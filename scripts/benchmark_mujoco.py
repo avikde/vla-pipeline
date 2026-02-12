@@ -1,7 +1,7 @@
 import mujoco
 import time
 
-model = mujoco.MjModel.from_xml_path('../franka_mjx_simple.xml')
+model = mujoco.MjModel.from_xml_path('assets/so101/so101.xml')
 data = mujoco.MjData(model)
 
 # Benchmark CPU
