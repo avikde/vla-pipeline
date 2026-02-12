@@ -14,11 +14,11 @@ NOTE: This script uses the SO-101 robot and scene setup
 import argparse
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
 from PIL import Image
 import time
 import pybullet as p
 import pybullet_data
+import signal
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='SmolVLA Inference Demo with PyBullet')
@@ -26,6 +26,16 @@ parser.add_argument('-l', '--live', action='store_true', help='Enable live visua
 parser.add_argument('--steps', type=int, default=100, help='Number of simulation steps (default: 100)')
 parser.add_argument('--single-camera', action='store_true', help='Use only one camera view (faster, may reduce accuracy)')
 args = parser.parse_args()
+
+# Signal handler for clean exit
+def signal_handler(sig, frame):
+    print('\n\nInterrupted by user. Cleaning up...')
+    try:
+        p.disconnect()
+    except:
+        pass
+
+signal.signal(signal.SIGINT, signal_handler)
 
 print("Loading SmolVLA policy...")
 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
@@ -46,6 +56,8 @@ else:
 p.setAdditionalSearchPath(pybullet_data.getDataPath())
 p.setGravity(0, 0, -9.8)
 p.setTimeStep(1./240.)  # 240 Hz simulation
+p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0)
 
 # Load plane (floor)
 plane_id = p.loadURDF("plane.urdf")
@@ -397,81 +409,6 @@ if num_completed > 0:
 
     print("\n  Effective rate: {:.1f} Hz".format(1000/total_avg if total_avg > 0 else 0))
 
-# Visualization
-print("\nGenerating visualization...")
-fig = plt.figure(figsize=(16, 10))
-
-# Camera views
-ax1 = plt.subplot(2, 3, 1)
-ax1.imshow(render_camera('third_person'))
-ax1.set_title('Third Person View (PyBullet)', fontsize=12)
-ax1.axis('off')
-
-ax2 = plt.subplot(2, 3, 2)
-ax2.imshow(render_camera('top_down'))
-ax2.set_title('Top Down View', fontsize=12)
-ax2.axis('off')
-
-ax3 = plt.subplot(2, 3, 3)
-ax3.imshow(render_camera('wrist_cam'))
-ax3.set_title('Wrist Camera View', fontsize=12)
-ax3.axis('off')
-
-# Action history plots
-action_history_np = np.array(action_history)
-
-ax4 = plt.subplot(2, 3, 4)
-for i in range(min(3, action_history_np.shape[1])):
-    ax4.plot(action_history_np[:, i], label=f'Joint {i+1}', linewidth=2)
-ax4.set_xlabel('Simulation Step', fontsize=10)
-ax4.set_ylabel('Action Value', fontsize=10)
-ax4.set_title('VLA-Predicted Actions (Joints 1-3)', fontsize=12)
-ax4.legend(fontsize=9)
-ax4.grid(True, alpha=0.3)
-
-ax5 = plt.subplot(2, 3, 5)
-for i in range(3, min(6, action_history_np.shape[1])):
-    ax5.plot(action_history_np[:, i], label=f'Joint {i+1}', linewidth=2)
-ax5.set_xlabel('Simulation Step', fontsize=10)
-ax5.set_ylabel('Action Value', fontsize=10)
-ax5.set_title('VLA-Predicted Actions (Joints 4-6)', fontsize=12)
-ax5.legend(fontsize=9)
-ax5.grid(True, alpha=0.3)
-
-# Info text
-ax6 = plt.subplot(2, 3, 6)
-ax6.axis('off')
-cameras_used = "1 camera (third person only)" if args.single_camera else "3 cameras (all views)"
-renderer_info = "PyBullet TinyRenderer"
-info_text = f"""SmolVLA Inference Demo (PyBullet)
-
-Model: lerobot/smolvla_base
-Parameters: 450M
-Device: {device.upper()}
-Task: {task_instruction}
-
-Simulator: PyBullet
-Renderer: {renderer_info}
-Robot: SO-101 ({num_dof} DOF)
-Scene: Matches MuJoCo scene setup
-Simulation Steps: {num_steps}
-
-Camera Setup: {cameras_used}
-• Resolution: {WIDTH}x{HEIGHT} (VLA native)
-• Positions match SO-101 MuJoCo scene
-
-VLA processes all 3 camera views
-and predicts 6D actions.
-
-SmolVLA is pretrained on SO-101
-data - works out-of-the-box!"""
-ax6.text(0.1, 0.5, info_text, fontsize=10, verticalalignment='center',
-         family='monospace', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
-
-plt.tight_layout()
-plt.savefig('vla_inference_demo_pybullet.png', dpi=150, bbox_inches='tight')
-print("✓ Saved visualization to vla_inference_demo_pybullet.png")
-
 # Print final state
 red_cube_pos, red_cube_orn = p.getBasePositionAndOrientation(red_cube_id)
 print(f"\nFinal red cube position: {red_cube_pos}")
@@ -483,8 +420,13 @@ for joint_idx in controllable_joints[:num_dof]:
 print(f"Final robot joint positions: {final_joint_positions}")
 
 print("\n" + "="*60)
-print("Demo complete! Check vla_inference_demo_pybullet.png")
+print("Demo complete!")
 print("="*60)
 
-# Disconnect PyBullet
-p.disconnect()
+# Disconnect PyBullet and exit cleanly
+print("Disconnecting PyBullet...")
+try:
+    p.disconnect()
+except:
+    pass
+
