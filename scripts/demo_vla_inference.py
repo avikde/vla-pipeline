@@ -177,25 +177,23 @@ for step in range(num_steps):
         render_call_time += t
         img_top, t = render_camera('top_down')
         render_call_time += t
-        img_wrist, t = render_camera('wrist_cam')
-        render_call_time += t
         render_time = time.time() - render_start
 
     # 2. Preprocess images for VLA (move to device)
+    # Note: wrist_cam is not useful in this setup, so we duplicate third_person
+    # for camera3 to satisfy the model's expected 3-camera input.
     preprocess_start = time.time()
     img_third_tensor = preprocess_image(img_third, device=device)
 
     if args.single_camera:
         img_top_tensor = img_third_tensor
-        img_wrist_tensor = img_third_tensor
     else:
         img_top_tensor = preprocess_image(img_top, device=device)
-        img_wrist_tensor = preprocess_image(img_wrist, device=device)
 
     observation = {
         'observation.images.camera1': img_third_tensor,
         'observation.images.camera2': img_top_tensor,
-        'observation.images.camera3': img_wrist_tensor,
+        'observation.images.camera3': img_third_tensor,
         'observation.state': torch.from_numpy(data.qpos[:6]).float().unsqueeze(0).to(device),
         'task': task_instruction,
     }
