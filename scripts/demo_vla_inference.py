@@ -114,6 +114,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 policy = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base").to(device).eval()
 print("✓ SmolVLA loaded successfully")
+print(f"  Action chunk size: {policy.config.chunk_size}, n_action_steps: {policy.config.n_action_steps}")
+print(f"  Denoising steps: {policy.config.num_steps}")
 
 # Create preprocessor and postprocessor
 print("Creating SmolVLA preprocessor...")
@@ -203,6 +205,9 @@ for step in range(num_steps):
 
     # 3. VLA inference
     vla_start = time.time()
+    queue_was_empty = len(policy._queues.get("action", [])) == 0
+    if (queue_was_empty):
+        print("  !! New chunk")
     with torch.inference_mode():
         actions = policy.select_action(processed_obs)
 
@@ -250,6 +255,11 @@ for step in range(num_steps):
 
     if step % 20 == 0:
         print(f"  Step {step}/{num_steps}: actions = [{robot_actions[0]:.3f}, {robot_actions[1]:.3f}, {robot_actions[2]:.3f}] ({total_time*1000:.1f} ms)")
+
+    if total_time > 0.5:
+        print(f"  !! SLOW step {step} ({total_time*1000:.1f} ms){queue_was_empty} — "
+              f"render={render_time*1000:.1f}ms, preprocess={preprocess_time*1000:.1f}ms, "
+              f"vla={vla_time*1000:.1f}ms, physics={physics_time*1000:.1f}ms, viewer={viewer_time*1000:.1f}ms")
 
 # Close viewer
 if viewer is not None:
