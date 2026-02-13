@@ -1,16 +1,34 @@
 #!/usr/bin/env python3
 """
-Debug script to verify SmolVLA's vision pipeline.
+Debug script to verify VLA vision pipelines.
 
-Uses the underlying SmolVLM2 VLM backbone directly to describe the scene,
+Uses the underlying VLM backbone directly to describe the scene,
 confirming whether the model can "see" and identify the red cube.
 Tests both raw and preprocessed (512x512 padded) images.
+
+Supported models:
+  --model smolvla     SmolVLM2-500M (used by SmolVLA and VLA-0-Smol)
+  --model xvla        Qwen2.5-VL-3B (used by X-VLA, frozen during training)
+  --model octo        No VLM backbone — saves image only
 """
 
+import argparse
 import mujoco
 import numpy as np
 import torch
 from PIL import Image
+
+parser = argparse.ArgumentParser(description='VLA Vision Debug')
+parser.add_argument('--model', choices=['smolvla', 'xvla', 'octo'], default='smolvla',
+                    help='Which VLA backbone to test (default: smolvla)')
+args = parser.parse_args()
+
+# VLM backbone for each VLA model
+VLM_BACKBONES = {
+    'smolvla': 'HuggingFaceTB/SmolVLM2-500M-Video-Instruct',
+    'xvla': 'Qwen/Qwen2.5-VL-3B-Instruct',
+    'octo': None,  # No pretrained VLM
+}
 
 # ── 1. Setup MuJoCo scene ────────────────────────────────────────────────────
 
@@ -64,60 +82,73 @@ padded_img_np = (tensor_padded[0].permute(1, 2, 0).numpy() * 255).clip(0, 255).a
 
 print(f"  Preprocessed: {tensor_padded.shape}, range=[{tensor_padded.min():.3f}, {tensor_padded.max():.3f}]")
 
-# ── 4. Use SmolVLM2 backbone directly to describe the scene ──────────────────
+# ── 4. VLM visual grounding test ─────────────────────────────────────────────
 
-print("\n=== SMOLVLM2 VISUAL GROUNDING TEST ===")
-print("Loading SmolVLM2-500M-Video-Instruct...")
+vlm_name = VLM_BACKBONES[args.model]
 
-from transformers import AutoProcessor, AutoModelForImageTextToText
+if vlm_name is None:
+    print(f"\n=== {args.model.upper()} has no pretrained VLM backbone ===")
+    print("Perception debugging is limited to visual inspection of debug_third_person.png.")
+    print("Octo uses a shallow CNN patch encoder trained from scratch — no standalone")
+    print("vision model to query.")
+else:
+    print(f"\n=== VLM VISUAL GROUNDING TEST ({args.model}) ===")
+    print(f"Loading {vlm_name}...")
 
-vlm_name = "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
-vlm_processor = AutoProcessor.from_pretrained(vlm_name)
-vlm_model = AutoModelForImageTextToText.from_pretrained(
-    vlm_name, dtype=torch.float32
-).eval()
+    from transformers import AutoProcessor, AutoModelForImageTextToText
 
-def ask_vlm(pil_image, question):
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": pil_image},
-                {"type": "text", "text": question},
-            ],
-        }
+    vlm_processor = AutoProcessor.from_pretrained(vlm_name)
+    vlm_model = AutoModelForImageTextToText.from_pretrained(
+        vlm_name, dtype=torch.float32
+    ).eval()
+
+    def ask_vlm(pil_image, question):
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": pil_image},
+                    {"type": "text", "text": question},
+                ],
+            }
+        ]
+        prompt = vlm_processor.apply_chat_template(messages, add_generation_prompt=True)
+        inputs = vlm_processor(text=prompt, images=[pil_image], return_tensors="pt")
+        with torch.inference_mode():
+            output_ids = vlm_model.generate(**inputs, max_new_tokens=150)
+        generated = vlm_processor.batch_decode(
+            output_ids[:, inputs["input_ids"].shape[1]:],
+            skip_special_tokens=True,
+        )[0]
+        return generated.strip()
+
+    test_image = Image.fromarray(img_third)
+    questions = [
+        "Describe what you see in this image in detail.",
+        "Is there a red cube in this image? If so, where is it?",
+        "What objects do you see on the table?",
+        "Do you see a robot arm? Describe its position.",
     ]
-    prompt = vlm_processor.apply_chat_template(messages, add_generation_prompt=True)
-    inputs = vlm_processor(text=prompt, images=[pil_image], return_tensors="pt")
-    with torch.inference_mode():
-        output_ids = vlm_model.generate(**inputs, max_new_tokens=150)
-    generated = vlm_processor.batch_decode(
-        output_ids[:, inputs["input_ids"].shape[1]:],
-        skip_special_tokens=True,
-    )[0]
-    return generated.strip()
 
-# Test on raw third_person image
-test_image = Image.fromarray(img_third)
-questions = [
-    "Describe what you see in this image in detail.",
-    "Is there a red cube in this image? If so, where is it?",
-    "What objects do you see on the table?",
-    "Do you see a robot arm? Describe its position.",
-]
+    print(f"\n--- Raw third_person image (256x256) ---")
+    for question in questions:
+        answer = ask_vlm(test_image, question)
+        print(f"\n  Q: {question}")
+        print(f"  A: {answer}")
 
-print("\n--- Raw third_person image (256x256) ---")
-for question in questions:
-    answer = ask_vlm(test_image, question)
-    print(f"\n  Q: {question}")
+    # Test on preprocessed (padded) image
+    preprocessed_pil = Image.fromarray(padded_img_np)
+    print(f"\n--- Preprocessed image (512x512 padded) ---")
+    answer = ask_vlm(preprocessed_pil, "Is there a red cube in this image? Describe everything you see.")
+    print(f"\n  Q: Is there a red cube in this image? Describe everything you see.")
     print(f"  A: {answer}")
 
-# Test on preprocessed (padded) image
-preprocessed_pil = Image.fromarray(padded_img_np)
-print("\n--- Preprocessed image (512x512 padded) ---")
-answer = ask_vlm(preprocessed_pil, "Is there a red cube in this image? Describe everything you see.")
-print(f"\n  Q: Is there a red cube in this image? Describe everything you see.")
-print(f"  A: {answer}")
+    if args.model == 'xvla':
+        print("\n  NOTE: X-VLA keeps this VLM frozen during training.")
+        print("  These answers directly reflect the visual features X-VLA conditions on.")
+    elif args.model == 'smolvla':
+        print("\n  NOTE: SmolVLA fine-tunes the vision encoder end-to-end.")
+        print("  Text QA quality does NOT directly predict action quality.")
 
 print(f"\n{'='*60}")
 print("Debug complete.")
