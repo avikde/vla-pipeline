@@ -3,21 +3,20 @@
 Vision-Language-Action model integration with the SO-101 robot arm using MuJoCo simulation and SmolVLA.
 
 Software used:
-- JAX 0.9.0.1 with CUDA 12 support
 - **PyTorch 2.10.0 with CUDA 12.8** (need CUDA 12.8 for Blackwell/sm_120 support)
 - LeRobot 0.4.3 with SmolVLA
-- MuJoCo + MJX
+- JAX 0.9.0.1 with CUDA 12 support + MJX (**TODO**)
+- MuJoCo
 
 ## Prerequisites
 
 **Hardware:** NVIDIA GPU recommended (tested on RTX 5070ti mobile, 12GB VRAM)
 
 **Software:**
-- WSL2 (for Windows users) or Linux
+- Windows, WSL2 or Linux
 - NVIDIA drivers installed
 - Python 3.11+
 
-**Verify GPU access in WSL2:**
 ```sh
 nvidia-smi
 ```
@@ -32,77 +31,63 @@ git clone https://github.com/avikde/vla-pipeline.git
 cd vla-pipeline
 ```
 
-### 2. Install System Dependencies
+If using **Linux / WSL**, install these system dependencies. Skip if **Windows**:
 
 ```bash
+# 2
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3 python3-venv python3-pip build-essential git
 ```
 
-### 3. Create Python Virtual Environment
+### 
 
 ```bash
+# Create Python Virtual Environment
 python3 -m venv venv
 source venv/bin/activate
-```
 
-### 4. Install All Dependencies
-
-**Install JAX with CUDA support:**
-```bash
+# Install JAX with CUDA support:
 pip install --upgrade pip
 pip install "jax[cuda12]"
-```
 
-**Install MuJoCo and MJX (GPU-accelerated physics):**
-```bash
-pip install mujoco mujoco-mjx
-```
+# Install MuJoCo and MJX (GPU-accelerated physics)
+pip install mujoco # mujoco-mjx
 
+# Install visualization and utilities
+pip install dm_control matplotlib numpy pillow
 
-**Install LeRobot with SmolVLA support:**
-```bash
+# Install LeRobot with SmolVLA support
 pip install "lerobot[smolvla]"
 ```
 
-**Install PyTorch 2.10.0 with CUDA 12.8 (for RTX 5070 Ti Blackwell support):**
+For an NVIDIA GPU, install torch with CUDA support. For my RTX 5070 Ti Blackwell GPU, I needed CUDA 12.8 for sm120 support:
 ```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
-**Install visualization and utilities:**
-```bash
-pip install dm_control matplotlib numpy pillow
+### Verify Installation
+
+
+```sh
+# Torch: should say "2.10.0+cu128 True" for CUDA access
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# LeRobot
+python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 ```
 
-### 5. Verify Installation
-
-**Check JAX GPU access:**
+Check JAX GPU access (**Skip for now**)
 ```sh
 python -c "import jax; print('JAX backend:', jax.default_backend()); print('JAX devices:', jax.devices())"
-```
-Expected output: Should show `cuda` backend and `CudaDevice`.
-
-**Check PyTorch GPU access:**
-```sh
-python -c "import torch; print('PyTorch CUDA available:', torch.cuda.is_available())"
-```
-Expected output: `True`
-
-**Check LeRobot installation:**
-```sh
-python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 ```
 
 ## Quick Start
 
-### Run SO-101 Simulation Demo
+### Run Mujoco benchmark without VLA
 
+This demonstrates the SO-101 robot with 3-camera vision setup:
 ```sh
-python scripts/demo_so101.py
+python scripts/bench_mujoco.py
 ```
-
-This demonstrates the SO-101 robot with 3-camera vision setup and basic red cube detection.
 
 ### Run SmolVLA Inference Demo
 
@@ -266,3 +251,26 @@ Win Mujoco single camera
   Physics step..................    0.39 ms  (  2.2%)
   Total iteration...............   17.70 ms  (100.0%)
     (min/max)...................   13.85 / 122.73 ms
+
+
+demo_vla_inference (CPU)
+
+  Rendering (3 cameras).........   40.72 ms  ( 37.2%)
+    render() calls..............   37.44 ms  ( 34.2%)
+  Image preprocessing...........    2.15 ms  (  2.0%)
+  VLA inference.................   64.47 ms  ( 58.9%)
+  Physics step..................    0.18 ms  (  0.2%)
+  Viewer sync...................    1.77 ms  (  1.6%)
+  Total iteration...............  109.42 ms  (100.0%)
+    (min/max)...................   46.00 / 3195.77 ms
+
+demo_vla_inference (GPU)
+
+  Rendering (3 cameras).........   74.91 ms  ( 62.9%)
+    render() calls..............   71.18 ms  ( 59.8%)
+  Image preprocessing...........    4.87 ms  (  4.1%)
+  VLA inference.................   36.55 ms  ( 30.7%)
+  Physics step..................    0.26 ms  (  0.2%)
+  Viewer sync...................    2.00 ms  (  1.7%)
+  Total iteration...............  119.01 ms  (100.0%)
+    (min/max)...................   50.94 / 2594.17 ms
