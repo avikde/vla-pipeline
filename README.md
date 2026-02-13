@@ -59,14 +59,15 @@ pip install "jax[cuda12]"
 pip install mujoco mujoco-mjx
 ```
 
-**Install PyTorch 2.10.0 with CUDA 12.8 (for RTX 5070 Ti Blackwell support):**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-```
 
 **Install LeRobot with SmolVLA support:**
 ```bash
 pip install "lerobot[smolvla]"
+```
+
+**Install PyTorch 2.10.0 with CUDA 12.8 (for RTX 5070 Ti Blackwell support):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
 **Install visualization and utilities:**
@@ -248,3 +249,20 @@ Mujoco single camera
   Total iteration...............  333.83 ms  (100.0%)
     (min/max)...................  303.48 / 631.69 ms
 
+Win Mujoco 
+
+  Rendering (3 cameras).........   47.22 ms  ( 92.7%)
+    render() calls..............   43.41 ms  ( 85.2%)
+  Viewer sync...................    3.16 ms  (  6.2%)
+  Physics step..................    0.22 ms  (  0.4%)
+  Total iteration...............   50.95 ms  (100.0%)
+    (min/max)...................   48.31 / 143.82 ms
+
+Win Mujoco single camera
+
+  Rendering (1 camera)..........   15.09 ms  ( 85.3%)
+    render() calls..............   11.45 ms  ( 64.7%)
+  Viewer sync...................    1.86 ms  ( 10.5%)
+  Physics step..................    0.39 ms  (  2.2%)
+  Total iteration...............   17.70 ms  (100.0%)
+    (min/max)...................   13.85 / 122.73 ms
