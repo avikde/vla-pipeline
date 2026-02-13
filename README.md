@@ -105,22 +105,27 @@ python scripts/verify_vla_setup.py
 
 This runs automated checks to ensure SmolVLA is properly installed and working.
 
-## About SmolVLA
+## VLA Model Comparison
 
-**SmolVLA** is a 450M parameter Vision-Language-Action model that:
-- Is already pretrained on SO-101 robot data (no fine-tuning needed for basic tasks!)
-- Trained on 487 community datasets including SO-101 manipulation tasks
-- Uses ~2-3GB VRAM for inference (fits comfortably on 12GB GPU)
-- Works out-of-the-box for pick-and-place, cube stacking, and other manipulation tasks
+All models below fit on a 12GB GPU (RTX 5070 Ti).
 
-**Model:** `lerobot/smolvla_base` from Hugging Face
+| Model | Params | VRAM | Vision Encoder | Action Head | Vision Fine-tuned? |
+|---|---|---|---|---|---|
+| **SmolVLA** | 450M | ~2-3GB | SigLIP (via SmolVLM2-500M) | Flow matching (10 steps) | Yes (end-to-end) |
+| Octo-Base | 93M | ~1-2GB | Shallow CNN patch encoder (no pretrained ViT) | Diffusion (20 steps) | N/A (trained from scratch) |
+| X-VLA-0.9B | 900M | ~3-5GB | Pretrained VLM + shared ViT for aux views | Flow matching (10 steps) | Partially (VLM frozen, soft prompts trained) |
+| VLA-0-Smol | 500M | ~2-3GB | SigLIP (via SmolVLM2-500M) | Autoregressive tokens (actions discretized into bins) | Yes (critical — freezing drops success 58% to 25%) |
 
-**Example tasks it can perform:**
-- "Pick the red cube and place it on the blue cube"
-- "Move the cube to the left"
-- "Stack the cubes"
+**Key architectural differences:**
+- **SmolVLA** and **X-VLA** use **flow matching**: a denoising loop refines noisy action vectors into clean continuous actions, conditioned on vision+language embeddings. The vision encoder provides spatial features, not text.
+- **Octo** uses **diffusion** (similar concept to flow matching): a 3-layer MLP denoises actions conditioned on transformer embeddings. No pretrained VLM — all parameters trained from scratch on robot data.
+- **VLA-0-Smol** uses **autoregressive token prediction**: actions are discretized into bins and generated as text tokens ("227 232 223 191"). This is the only architecture where text generation quality directly reflects action quality.
 
-The model automatically downloads (~1.8GB) on first use.
+References: [SmolVLA](https://huggingface.co/papers/2506.01844) | [Octo](https://octo-models.github.io/) | [X-VLA](https://thu-air-dream.github.io/X-VLA/) | [VLA-0-Smol](https://robot-learning-collective.github.io/vla-0-smol)
+
+### Current model: SmolVLA
+
+**SmolVLA** is pretrained on 487 community datasets including SO-101 manipulation tasks and works out-of-the-box for pick-and-place tasks. Model `lerobot/smolvla_base` auto-downloads (~1.8GB) on first use.
 
 ## SO-101 Robot Specifications
 
