@@ -227,6 +227,9 @@ log_file.write(f"Task: {task_instruction}\n")
 log_file.write(f"Action mode: {policy.config.action_mode}\n")
 log_file.write("=" * 80 + "\n\n")
 
+# Track previous action's timestep_2 to check continuity
+prev_xyz_2 = None
+
 for step in range(args.steps):
     iter_start = time.time()
 
@@ -283,10 +286,50 @@ for step in range(args.steps):
     if len(actions_np) >= 20:
         xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2 = decode_ee6d_action(actions_np)
 
+        # Check difference between timestep 1 and timestep 2
+        xyz_diff = np.linalg.norm(xyz_2 - xyz_1)
+
+        # Track chunk boundaries
+        queue_size = len(policy._queues.get("action", []))
+        is_new_chunk = queue_size == 31  # Just generated new chunk (32 actions, popped 1)
+
+        # Check continuity: does prev_timestep_2 match current_timestep_1?
+        continuity_gap = None
+        if prev_xyz_2 is not None:
+            continuity_gap = np.linalg.norm(xyz_1 - prev_xyz_2)
+
+        if is_new_chunk:
+            print(f"\n  🔄 NEW CHUNK generated at step {step}")
+            if continuity_gap is not None:
+                print(f"     Continuity gap (prev_t2 → curr_t1): {continuity_gap:.4f}")
+
+        if step % 10 == 0 or args.verbose:
+            print(f"  XYZ diff (t1→t2): {xyz_diff:.4f}, Queue: {queue_size}")
+            if continuity_gap is not None:
+                print(f"  Continuity (prev_t2→t1): {continuity_gap:.4f}")
+
+        # Store for next iteration
+        prev_xyz_2 = xyz_2.copy()
+
         log_entry += f"Decoded EE Actions (timestep 1):\n"
         log_entry += f"  Position (XYZ): [{xyz_1[0]:.4f}, {xyz_1[1]:.4f}, {xyz_1[2]:.4f}]\n"
         log_entry += f"  Rotation (6D):  [{rot6d_1[0]:.4f}, {rot6d_1[1]:.4f}, {rot6d_1[2]:.4f}, {rot6d_1[3]:.4f}, {rot6d_1[4]:.4f}, {rot6d_1[5]:.4f}]\n"
         log_entry += f"  Gripper:        {gripper_1:.4f}\n\n"
+
+        log_entry += f"Decoded EE Actions (timestep 2):\n"
+        log_entry += f"  Position (XYZ): [{xyz_2[0]:.4f}, {xyz_2[1]:.4f}, {xyz_2[2]:.4f}]\n"
+        log_entry += f"  XYZ diff (t1→t2): {xyz_diff:.4f}\n"
+
+        # Test delta encoding hypothesis
+        xyz_sum = xyz_1 + xyz_2
+        log_entry += f"\n  🔍 Delta Hypothesis Test:\n"
+        log_entry += f"     t1 + t2 = [{xyz_sum[0]:.4f}, {xyz_sum[1]:.4f}, {xyz_sum[2]:.4f}]\n"
+        log_entry += f"     Magnitude ratio (t2/t1): {np.linalg.norm(xyz_2)/np.linalg.norm(xyz_1):.4f}\n\n"
+
+        log_entry += f"Temporal Analysis:\n"
+        log_entry += f"  Queue size: {queue_size} {'(NEW CHUNK)' if is_new_chunk else ''}\n"
+        if continuity_gap is not None:
+            log_entry += f"  Continuity gap (prev_t2 → curr_t1): {continuity_gap:.4f}\n"
 
         log_entry += f"Current State:\n"
         log_entry += f"  Current EE pos: [{current_ee_pos[0]:.4f}, {current_ee_pos[1]:.4f}, {current_ee_pos[2]:.4f}]\n"
