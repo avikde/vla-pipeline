@@ -419,12 +419,6 @@ while True:
     if len(actions_np) >= 20:
         xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2 = decode_ee6d_action(actions_np)
 
-        if is_new_chunk:
-            print(f"\n  🔄 NEW CHUNK generated at step {step}")
-
-        if step % 10 == 0 or args.verbose:
-            print(f"  Queue: {queue_size}")
-
         log_entry += f"Decoded EE Actions (timestep 1) - ABSOLUTE target:\n"
         log_entry += f"  Target XYZ:     {fmt_vec(xyz_1)}\n"
         log_entry += f"  Target Rot6D:   {fmt_vec(rot6d_1)}\n"
@@ -474,18 +468,6 @@ while True:
     log_file.write(log_entry)
     log_file.flush()
 
-    # Print summary to console
-    if step % 10 == 0 or args.verbose:
-        print(f"\n--- Step {step} ---")
-        print(f"  Proprio (8D): {fmt_vec(ee_state_8d)}")
-        if len(actions_np) >= 20:
-            print(f"  Target EE:  {fmt_vec(xyz_1)}")
-            print(f"  Current EE: {fmt_vec(current_ee_pos)}")
-            print(f"  Delta:      {fmt_vec(action_delta)}")
-            if cube_pos is not None:
-                print(f"  Cube:       {fmt_vec(cube_pos)}")
-                print(f"  Alignment:  {fmt(alignment)}")
-
     # Manual control: user controls joints via UI sliders (data.ctrl is set by viewer)
     # VLA actions are logged but not applied (proper IK/impedance control not yet implemented)
 
@@ -505,20 +487,6 @@ while True:
                 rgba=MARKER_COLORS[i],
             )
         viewer.user_scn.ngeom = len(cached_action_targets)
-
-    if len(cached_action_targets) > 0:
-        # Print trajectory preview every 10 steps
-        if step % 10 == 0 or is_new_chunk:
-            print(f"\n  Predicted Trajectory ({len(cached_action_targets)} cached markers):")
-            print(f"     Current EE: {fmt_vec(current_ee_pos)}")
-            if cube_pos is not None:
-                print(f"     Cube pos:   {fmt_vec(cube_pos)}")
-
-            for i, target_xyz in enumerate(cached_action_targets[:5]):
-                dist_to_cube = np.linalg.norm(target_xyz - cube_pos) if cube_pos is not None else 0
-                print(f"     [{i}] {fmt_vec(target_xyz)} (dist to cube: {fmt(dist_to_cube)}m)")
-            if len(cached_action_targets) > 5:
-                print(f"     ... ({len(cached_action_targets) - 5} more markers)")
 
     # Save camera snapshot once after first trajectory is available
     if not camera_snapshot_saved and len(cached_action_targets) > 0:
