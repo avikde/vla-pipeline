@@ -334,6 +334,7 @@ log_file.write("=" * 80 + "\n\n")
 # Track previous action's timestep_2 to check continuity
 prev_xyz_2 = None
 step = 0
+cached_action_targets = []  # First 10 XYZ targets from the most recent VLA chunk
 
 while True:
     # 1. Render cameras (matching X-VLA WidowX training: "up" and "side")
@@ -369,6 +370,18 @@ while True:
             print(f"❌ VLA inference error at step {step}: {e}")
             actions = torch.zeros(20, device=device)  # EE6D is 20-dimensional
 
+    # Snapshot the first 10 actions when a new chunk is generated
+    action_queue = policy._queues.get("action", [])
+    queue_size = len(action_queue)
+    is_new_chunk = queue_size == policy.config.chunk_size - 1  # Just generated new chunk, popped 1
+    if is_new_chunk:
+        cached_action_targets = []
+        for queued_action in list(action_queue)[:NUM_MARKERS]:
+            if isinstance(queued_action, torch.Tensor):
+                cached_action_targets.append(queued_action.flatten()[:3].cpu().numpy())
+            else:
+                cached_action_targets.append(np.array(queued_action).flatten()[:3])
+
     if device == "cuda":
         torch.cuda.synchronize()
 
@@ -390,10 +403,6 @@ while True:
     # Decode EE actions
     if len(actions_np) >= 20:
         xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2 = decode_ee6d_action(actions_np)
-
-        # Track chunk boundaries
-        queue_size = len(policy._queues.get("action", []))
-        is_new_chunk = queue_size == 31  # Just generated new chunk (32 actions, popped 1)
 
         # Check continuity: does prev_timestep_2 match current_timestep_1?
         continuity_gap = None
@@ -484,45 +493,30 @@ while True:
 
     # 5. Viewer sync and trajectory visualization using mjv_initGeom
     viewer.user_scn.ngeom = 0
-    if hasattr(policy, '_queues') and 'action' in policy._queues:
-        action_queue = list(policy._queues['action'])
-        if len(action_queue) > 0:
-            # Extract all XYZ targets from queue
-            all_targets = []
-            for queued_action in action_queue:
-                if isinstance(queued_action, torch.Tensor):
-                    target_xyz = queued_action.flatten()[:3].cpu().numpy()
-                else:
-                    target_xyz = np.array(queued_action).flatten()[:3]
-                all_targets.append(target_xyz)
+    if len(cached_action_targets) > 0:
+        for i, target_xyz in enumerate(cached_action_targets):
+            mujoco.mjv_initGeom(
+                viewer.user_scn.geoms[i],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[0.01, 0, 0],
+                pos=target_xyz.astype(np.float64),
+                mat=np.eye(3).flatten(),
+                rgba=MARKER_COLORS[i],
+            )
+        viewer.user_scn.ngeom = len(cached_action_targets)
 
-            # Show the next 10 most proximal (soonest) actions
-            sampled_targets = all_targets[:NUM_MARKERS]
+        # Print trajectory preview every 10 steps
+        if step % 10 == 0 or is_new_chunk:
+            print(f"\n  Predicted Trajectory ({len(cached_action_targets)} cached markers):")
+            print(f"     Current EE: {fmt_vec(current_ee_pos)}")
+            if cube_pos is not None:
+                print(f"     Cube pos:   {fmt_vec(cube_pos)}")
 
-            # Add sphere geoms to user_scn
-            for i, target_xyz in enumerate(sampled_targets):
-                mujoco.mjv_initGeom(
-                    viewer.user_scn.geoms[i],
-                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                    size=[0.01, 0, 0],
-                    pos=target_xyz.astype(np.float64),
-                    mat=np.eye(3).flatten(),
-                    rgba=MARKER_COLORS[i],
-                )
-            viewer.user_scn.ngeom = len(sampled_targets)
-
-            # Print trajectory preview every 10 steps
-            if step % 10 == 0 or is_new_chunk:
-                print(f"\n  Predicted Trajectory ({len(action_queue)} queued, {len(sampled_targets)} shown):")
-                print(f"     Current EE: {fmt_vec(current_ee_pos)}")
-                if cube_pos is not None:
-                    print(f"     Cube pos:   {fmt_vec(cube_pos)}")
-
-                for i, target_xyz in enumerate(sampled_targets[:5]):
-                    dist_to_cube = np.linalg.norm(target_xyz - cube_pos) if cube_pos is not None else 0
-                    print(f"     [{i}] {fmt_vec(target_xyz)} (dist to cube: {fmt(dist_to_cube)}m)")
-                if len(sampled_targets) > 5:
-                    print(f"     ... ({len(sampled_targets) - 5} more markers)")
+            for i, target_xyz in enumerate(cached_action_targets[:5]):
+                dist_to_cube = np.linalg.norm(target_xyz - cube_pos) if cube_pos is not None else 0
+                print(f"     [{i}] {fmt_vec(target_xyz)} (dist to cube: {fmt(dist_to_cube)}m)")
+            if len(cached_action_targets) > 5:
+                print(f"     ... ({len(cached_action_targets) - 5} more markers)")
 
     viewer.sync()
 
