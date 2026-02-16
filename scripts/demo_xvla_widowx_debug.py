@@ -15,6 +15,7 @@ import argparse
 import mujoco
 import numpy as np
 import torch
+from PIL import Image, ImageDraw
 import sys
 
 # Parse arguments
@@ -343,6 +344,7 @@ log_file.write("=" * 80 + "\n\n")
 prev_xyz_2 = None
 step = 0
 cached_action_targets = []  # First 10 XYZ targets from the most recent VLA chunk
+camera_snapshot_saved = False
 
 while True:
     # 1. Render cameras https://rail-berkeley.github.io/bridgedata/
@@ -521,6 +523,19 @@ while True:
                 print(f"     [{i}] {fmt_vec(target_xyz)} (dist to cube: {fmt(dist_to_cube)}m)")
             if len(cached_action_targets) > 5:
                 print(f"     ... ({len(cached_action_targets) - 5} more markers)")
+
+    # Save camera snapshot once after first trajectory is available
+    if not camera_snapshot_saved and len(cached_action_targets) > 0:
+        W, H = VLA_WIDTH, VLA_HEIGHT
+        combined = Image.new('RGB', (W * 2 + 20, H + 30), color=(255, 255, 255))
+        combined.paste(Image.fromarray(img), (0, 30))
+        combined.paste(Image.fromarray(img2), (W + 20, 30))
+        draw = ImageDraw.Draw(combined)
+        draw.text((W // 2 - 50, 5), 'image (over the shoulder)', fill=(0, 0, 0))
+        draw.text((W + 20 + W // 2 - 30, 5), 'image2 (side)', fill=(0, 0, 0))
+        combined.save('camera_views.png')
+        print(f"\n  Saved camera snapshot to camera_views.png")
+        camera_snapshot_saved = True
 
     viewer.sync()
 
