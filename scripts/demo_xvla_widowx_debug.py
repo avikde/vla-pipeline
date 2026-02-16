@@ -26,44 +26,12 @@ print("=" * 60)
 print("X-VLA WidowX Demo - DEBUG MODE")
 print("=" * 60)
 
-# Helper functions (defined before use)
-def add_trajectory_sites_to_xml(xml_path, output_path, num_sites=10):
-    """
-    Add visualization sites to the MuJoCo XML for trajectory markers.
-    This modifies the XML file to include mocap bodies for visualization.
-    """
-    import xml.etree.ElementTree as ET
-
-    tree = ET.parse(xml_path)
-    root = tree.getroot()
-
-    # Find or create worldbody
-    worldbody = root.find('worldbody')
-    if worldbody is None:
-        worldbody = ET.SubElement(root, 'worldbody')
-
-    # Add mocap bodies for trajectory visualization
-    for i in range(num_sites):
-        mocap = ET.SubElement(worldbody, 'body', {
-            'name': f'traj_marker_{i}',
-            'mocap': 'true',
-            'pos': '0 0 -10'  # Start hidden underground
-        })
-        # Add a small sphere geom
-        fade = i / max(1, num_sites - 1)
-        rgba = f"{fade} {1-fade} 0 0.6"  # Green→Red gradient
-        ET.SubElement(mocap, 'geom', {
-            'type': 'sphere',
-            'size': '0.01',
-            'rgba': rgba,
-            'contype': '0',
-            'conaffinity': '0',
-            'group': '1'
-        })
-
-    tree.write(output_path)
-    print(f"  📝 Created modified scene with trajectory markers: {output_path}")
-    return output_path
+# Precompute trajectory marker colors (green -> red gradient, 10 markers)
+NUM_MARKERS = 10
+MARKER_COLORS = []
+for i in range(NUM_MARKERS):
+    fade = i / max(1, NUM_MARKERS - 1)
+    MARKER_COLORS.append(np.array([fade, 1.0 - fade, 0.0, 0.6], dtype=np.float32))
 
 # Load X-VLA policy
 print("\n[1/7] Loading X-VLA WidowX policy...")
@@ -104,12 +72,7 @@ except ImportError as e:
 # Load WidowX MuJoCo model
 print("\n[2/7] Loading WidowX MuJoCo model...")
 try:
-    # Create modified XML with trajectory markers
     xml_path = 'assets/widowx/widowx_vision_scene.xml'
-    modified_xml = 'assets/widowx/widowx_vision_scene_with_markers.xml'
-    add_trajectory_sites_to_xml(xml_path, modified_xml, num_sites=10)
-    xml_path = modified_xml
-
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
 
@@ -519,52 +482,47 @@ while True:
     # 4. Step simulation
     mujoco.mj_step(model, data)
 
-    # 5. Viewer sync and trajectory visualization
+    # 5. Viewer sync and trajectory visualization using mjv_initGeom
+    viewer.user_scn.ngeom = 0
     if hasattr(policy, '_queues') and 'action' in policy._queues:
-        action_queue = policy._queues['action']
+        action_queue = list(policy._queues['action'])
         if len(action_queue) > 0:
-            # Extract ABSOLUTE target XYZ from queued actions (up to 10 markers)
-            trajectory_targets = []
-            for queued_action in list(action_queue)[:10]:
-                # Each action is 20D, first 3 = absolute target XYZ
+            # Extract all XYZ targets from queue
+            all_targets = []
+            for queued_action in action_queue:
                 if isinstance(queued_action, torch.Tensor):
                     target_xyz = queued_action.flatten()[:3].cpu().numpy()
                 else:
                     target_xyz = np.array(queued_action).flatten()[:3]
-                trajectory_targets.append(target_xyz)
+                all_targets.append(target_xyz)
 
-            # Update mocap body positions to show trajectory markers
-            for i, target_xyz in enumerate(trajectory_targets):
-                try:
-                    mocap_id = model.body(f'traj_marker_{i}').mocapid[0]
-                    if mocap_id >= 0:
-                        data.mocap_pos[mocap_id] = target_xyz
-                except:
-                    pass
+            # Show the next 10 most proximal (soonest) actions
+            sampled_targets = all_targets[:NUM_MARKERS]
 
-            # Hide unused markers (move them underground)
-            for i in range(len(trajectory_targets), 10):
-                try:
-                    mocap_id = model.body(f'traj_marker_{i}').mocapid[0]
-                    if mocap_id >= 0:
-                        data.mocap_pos[mocap_id] = [0, 0, -10]
-                except:
-                    pass
+            # Add sphere geoms to user_scn
+            for i, target_xyz in enumerate(sampled_targets):
+                mujoco.mjv_initGeom(
+                    viewer.user_scn.geoms[i],
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    size=[0.01, 0, 0],
+                    pos=target_xyz.astype(np.float64),
+                    mat=np.eye(3).flatten(),
+                    rgba=MARKER_COLORS[i],
+                )
+            viewer.user_scn.ngeom = len(sampled_targets)
 
             # Print trajectory preview every 10 steps
             if step % 10 == 0 or is_new_chunk:
-                print(f"\n  Predicted Trajectory (next {len(trajectory_targets)} targets):")
+                print(f"\n  Predicted Trajectory ({len(action_queue)} queued, {len(sampled_targets)} shown):")
                 print(f"     Current EE: {fmt_vec(current_ee_pos)}")
                 if cube_pos is not None:
                     print(f"     Cube pos:   {fmt_vec(cube_pos)}")
 
-                for i, target_xyz in enumerate(trajectory_targets[:5]):  # Show first 5
+                for i, target_xyz in enumerate(sampled_targets[:5]):
                     dist_to_cube = np.linalg.norm(target_xyz - cube_pos) if cube_pos is not None else 0
-                    marker = "🟢" if i < 2 else "🟡" if i < 4 else "🔴"
-                    print(f"     {marker} +{i+1}: {fmt_vec(target_xyz)} "
-                          f"(dist to cube: {fmt(dist_to_cube)}m)")
-                if len(trajectory_targets) > 5:
-                    print(f"     ... ({len(trajectory_targets) - 5} more steps in queue)")
+                    print(f"     [{i}] {fmt_vec(target_xyz)} (dist to cube: {fmt(dist_to_cube)}m)")
+                if len(sampled_targets) > 5:
+                    print(f"     ... ({len(sampled_targets) - 5} more markers)")
 
     viewer.sync()
 
