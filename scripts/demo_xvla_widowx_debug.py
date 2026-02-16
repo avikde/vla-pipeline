@@ -351,8 +351,6 @@ log_file.write("to 7D [target_eef(3), axis_angle(3), gripper(1)] for robot execu
 log_file.write("Ref: processor_xvla.py:471-521\n")
 log_file.write("=" * 80 + "\n\n")
 
-# Track previous action's timestep_2 to check continuity
-prev_xyz_2 = None
 step = 0
 cached_action_targets = []  # First 10 XYZ targets from the most recent VLA chunk
 camera_snapshot_saved = False
@@ -421,23 +419,11 @@ while True:
     if len(actions_np) >= 20:
         xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2 = decode_ee6d_action(actions_np)
 
-        # Check continuity: does prev_timestep_2 match current_timestep_1?
-        continuity_gap = None
-        if prev_xyz_2 is not None:
-            continuity_gap = np.linalg.norm(xyz_1 - prev_xyz_2)
-
         if is_new_chunk:
             print(f"\n  🔄 NEW CHUNK generated at step {step}")
-            if continuity_gap is not None:
-                print(f"     Continuity gap (prev_t2 -> curr_t1): {fmt(continuity_gap)}")
 
         if step % 10 == 0 or args.verbose:
             print(f"  Queue: {queue_size}")
-            if continuity_gap is not None:
-                print(f"  Continuity (prev_t2->t1): {fmt(continuity_gap)}")
-
-        # Store for next iteration
-        prev_xyz_2 = xyz_2.copy()
 
         log_entry += f"Decoded EE Actions (timestep 1) - ABSOLUTE target:\n"
         log_entry += f"  Target XYZ:     {fmt_vec(xyz_1)}\n"
@@ -451,8 +437,6 @@ while True:
 
         log_entry += f"Temporal Analysis:\n"
         log_entry += f"  Queue size: {queue_size} {'(NEW CHUNK)' if is_new_chunk else ''}\n"
-        if continuity_gap is not None:
-            log_entry += f"  Continuity gap (prev_t2 -> curr_t1): {fmt(continuity_gap)}\n"
 
         log_entry += f"\nCurrent State:\n"
         log_entry += f"  Current EE pos: {fmt_vec(current_ee_pos)}\n"
@@ -522,6 +506,7 @@ while True:
             )
         viewer.user_scn.ngeom = len(cached_action_targets)
 
+    if len(cached_action_targets) > 0:
         # Print trajectory preview every 10 steps
         if step % 10 == 0 or is_new_chunk:
             print(f"\n  Predicted Trajectory ({len(cached_action_targets)} cached markers):")
