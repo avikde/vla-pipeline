@@ -113,10 +113,21 @@ model.vis.global_.offheight = max(model.vis.global_.offheight, VLA_HEIGHT)
 renderer = mujoco.Renderer(model, height=VLA_HEIGHT, width=VLA_WIDTH)
 print(f"  ✓ Renderer ready ({VLA_WIDTH}x{VLA_HEIGHT})")
 
-def render_camera(camera_name):
-    """Render from a specific camera."""
+def render_camera(camera_name, trajectory=None):
+    """Render from a specific camera, optionally with trajectory spheres."""
     camera_id = model.camera(camera_name).id
     renderer.update_scene(data, camera=camera_id)
+    if trajectory:
+        for i, target_xyz in enumerate(trajectory):
+            mujoco.mjv_initGeom(
+                renderer.scene.geoms[renderer.scene.ngeom],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[0.01, 0, 0],
+                pos=target_xyz.astype(np.float64),
+                mat=np.eye(3).flatten(),
+                rgba=MARKER_COLORS[i],
+            )
+            renderer.scene.ngeom += 1
     return renderer.render()
 
 def preprocess_image(rgb_image, device='cpu'):
@@ -527,9 +538,12 @@ while True:
     # Save camera snapshot once after first trajectory is available
     if not camera_snapshot_saved and len(cached_action_targets) > 0:
         W, H = VLA_WIDTH, VLA_HEIGHT
+        traj = cached_action_targets
+        snap_up = render_camera('up', trajectory=traj)
+        snap_side = render_camera('side', trajectory=traj)
         combined = Image.new('RGB', (W * 2 + 20, H + 30), color=(255, 255, 255))
-        combined.paste(Image.fromarray(img), (0, 30))
-        combined.paste(Image.fromarray(img2), (W + 20, 30))
+        combined.paste(Image.fromarray(snap_up), (0, 30))
+        combined.paste(Image.fromarray(snap_side), (W + 20, 30))
         draw = ImageDraw.Draw(combined)
         draw.text((W // 2 - 50, 5), 'image (over the shoulder)', fill=(0, 0, 0))
         draw.text((W + 20 + W // 2 - 30, 5), 'image2 (side)', fill=(0, 0, 0))
