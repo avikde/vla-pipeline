@@ -269,17 +269,8 @@ if cube_pos is not None:
     dist_to_cube = np.linalg.norm(initial_ee_pos - cube_pos)
     print(f"     - Distance to cube: {dist_to_cube:.3f}m")
 
-# Launch viewer
-print("\n[6/7] Launching viewer...")
-import mujoco.viewer as mj_viewer
-viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=True)
-viewer.cam.distance = 0.8
-viewer.cam.azimuth = 45
-viewer.cam.elevation = -20
-viewer.cam.lookat[:] = [0.2, 0.0, 0.2]
-print(f"  ✓ Viewer launched (manual control via right panel sliders)")
-print(f"  🎯 Trajectory visualization enabled")
-print(f"  Close the viewer window to stop.")
+print("\n[6/7] Headless mode (no viewer)")
+print(f"  Will run until first trajectory is generated, then save camera_views.png")
 
 # Simulation loop
 print("\n[7/7] Running X-VLA inference loop...")
@@ -458,46 +449,29 @@ while True:
     log_file.write(log_entry)
     log_file.flush()
 
-    # Manual control: user controls joints via UI sliders (data.ctrl is set by viewer)
     # VLA actions are logged but not applied (proper IK/impedance control not yet implemented)
 
     # 4. Step simulation
     mujoco.mj_step(model, data)
 
-    # 5. Viewer sync and trajectory visualization using mjv_initGeom
-    viewer.user_scn.ngeom = 0
-    if len(cached_action_targets) > 0:
-        for i, target_xyz in enumerate(cached_action_targets):
-            mujoco.mjv_initGeom(
-                viewer.user_scn.geoms[i],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=[0.01, 0, 0],
-                pos=target_xyz.astype(np.float64),
-                mat=np.eye(3).flatten(),
-                rgba=MARKER_COLORS[i],
-            )
-        viewer.user_scn.ngeom = len(cached_action_targets)
-
-    # Save camera snapshot once after first trajectory is available
+    # 5. Save camera snapshot once after first trajectory is available, then stop
     if not camera_snapshot_saved and len(cached_action_targets) > 0:
         W, H = VLA_WIDTH, VLA_HEIGHT
         traj = cached_action_targets
         snap_up = render_camera('up', trajectory=traj)
         snap_side = render_camera('side', trajectory=traj)
-        combined = Image.new('RGB', (W * 2 + 20, H + 30), color=(255, 255, 255))
+        snap_debug = render_camera('third_person', trajectory=traj)
+        combined = Image.new('RGB', (W * 3 + 40, H + 30), color=(255, 255, 255))
         combined.paste(Image.fromarray(snap_up), (0, 30))
         combined.paste(Image.fromarray(snap_side), (W + 20, 30))
+        combined.paste(Image.fromarray(snap_debug), (W * 2 + 40, 30))
         draw = ImageDraw.Draw(combined)
         draw.text((W // 2 - 50, 5), 'image (over the shoulder)', fill=(0, 0, 0))
         draw.text((W + 20 + W // 2 - 30, 5), 'image2 (side)', fill=(0, 0, 0))
+        draw.text((W * 2 + 40 + W // 2 - 50, 5), 'debug visualization', fill=(0, 0, 0))
         combined.save('camera_views.png')
         print(f"\n  Saved camera snapshot to camera_views.png")
         camera_snapshot_saved = True
-
-    viewer.sync()
-
-    if not viewer.is_running():
-        print(f"\nViewer closed at step {step}")
         break
 
     step += 1
@@ -509,7 +483,6 @@ print(f"\n📝 Detailed action log saved to: xvla_action_debug.log")
 
 # Cleanup
 log_file.close()
-viewer.close()
 
 print("\n🔍 Debugging Summary:")
 print("  ✓ Verified X-VLA action mode configuration")
