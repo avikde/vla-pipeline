@@ -307,12 +307,65 @@ print(f"  Close the viewer window to stop.")
 print("\n[7/7] Running X-VLA inference loop...")
 print("=" * 60)
 
+# Helper for fixed-width float formatting (no exponents)
+def fmt(v):
+    """Format a single float as fixed-point %.4f."""
+    return f"{v:.4f}"
+
+def fmt_vec(v):
+    """Format a numpy array as fixed-point [%.4f, %.4f, ...]."""
+    return "[" + ", ".join(f"{x:.4f}" for x in v) + "]"
+
 # Create log file for detailed action analysis
 log_file = open("xvla_action_debug.log", "w", encoding="utf-8")
 log_file.write("X-VLA Action Debug Log\n")
 log_file.write("=" * 80 + "\n")
 log_file.write(f"Task: {task_instruction}\n")
 log_file.write(f"Action mode: {policy.config.action_mode}\n")
+log_file.write(f"Chunk size: {policy.config.chunk_size}\n")
+log_file.write(f"N action steps: {policy.config.n_action_steps}\n")
+log_file.write(f"Normalization: IDENTITY (no normalization on state or action)\n")
+log_file.write("=" * 80 + "\n\n")
+
+log_file.write("OBSERVATION STATE (proprio) FORMAT\n")
+log_file.write("-" * 80 + "\n")
+log_file.write("Source: IPEC-COMMUNITY/bridge_orig_lerobot dataset card\n")
+log_file.write("Shape: (8,) -> padded to (20,) internally by pad_vector()\n")
+log_file.write("  [0] x       - EE position X (meters, MuJoCo world frame)\n")
+log_file.write("  [1] y       - EE position Y\n")
+log_file.write("  [2] z       - EE position Z\n")
+log_file.write("  [3] roll    - EE rotation about X (radians)\n")
+log_file.write("  [4] pitch   - EE rotation about Y\n")
+log_file.write("  [5] yaw     - EE rotation about Z\n")
+log_file.write("  [6] pad     - Always 0\n")
+log_file.write("  [7] gripper - Gripper joint position (left_finger qpos)\n")
+log_file.write("Normalization: IDENTITY (raw values passed directly)\n")
+log_file.write("Ref: modeling_xvla.py:298-304 _prepare_state() -> pad_vector(state, 20)\n")
+log_file.write("Ref: configuration_xvla.py max_state_dim=20, use_proprio=True\n")
+log_file.write("\n")
+
+log_file.write("ACTION SPACE FORMAT (ee6d)\n")
+log_file.write("-" * 80 + "\n")
+log_file.write("Source: action_hub.py EE6DActionSpace\n")
+log_file.write("Shape: (20,) = two packed timesteps of 10D each\n")
+log_file.write("  Timestep 1 (indices 0-9):\n")
+log_file.write("    [0:3]  XYZ    - ABSOLUTE target EE position (meters)\n")
+log_file.write("    [3:9]  Rot6D  - ABSOLUTE target EE orientation (6D rotation)\n")
+log_file.write("    [9]    Grip   - Gripper (sigmoid-postprocessed, 0=closed 1=open)\n")
+log_file.write("  Timestep 2 (indices 10-19):\n")
+log_file.write("    [10:13] XYZ   - ABSOLUTE target EE position (next step)\n")
+log_file.write("    [13:19] Rot6D - ABSOLUTE target EE orientation (next step)\n")
+log_file.write("    [19]    Grip  - Gripper (next step)\n")
+log_file.write("Normalization: IDENTITY (raw values from model)\n")
+log_file.write("Postprocess: sigmoid applied to gripper indices (9, 19)\n")
+log_file.write("Loss weights: XYZ_SCALE=500, ROT_SCALE=10, GRIPPER_SCALE=1\n")
+log_file.write("\n")
+
+log_file.write("NOTE: BridgeData raw actions are 7D DELTAS [dx,dy,dz,dr,dp,dy,grip]\n")
+log_file.write("but the ee6d model outputs ABSOLUTE target positions/orientations.\n")
+log_file.write("The XVLARotation6DToAxisAngleProcessorStep converts 20D ee6d output\n")
+log_file.write("to 7D [target_eef(3), axis_angle(3), gripper(1)] for robot execution.\n")
+log_file.write("Ref: processor_xvla.py:471-521\n")
 log_file.write("=" * 80 + "\n\n")
 
 # Track previous action's timestep_2 to check continuity
@@ -368,14 +421,12 @@ while True:
 
     log_entry = f"\n{'='*80}\nStep {step}\n{'='*80}\n"
     log_entry += f"Raw action vector (len={len(actions_np)}):\n"
-    log_entry += f"  {actions_np}\n\n"
+    log_entry += f"  {fmt_vec(actions_np)}\n\n"
+    log_entry += f"Proprio state (8D): {fmt_vec(ee_state_8d)}\n\n"
 
     # Decode EE actions
     if len(actions_np) >= 20:
         xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2 = decode_ee6d_action(actions_np)
-
-        # Check difference between timestep 1 and timestep 2
-        xyz_diff = np.linalg.norm(xyz_2 - xyz_1)
 
         # Track chunk boundaries
         queue_size = len(policy._queues.get("action", []))
@@ -389,63 +440,63 @@ while True:
         if is_new_chunk:
             print(f"\n  🔄 NEW CHUNK generated at step {step}")
             if continuity_gap is not None:
-                print(f"     Continuity gap (prev_t2 → curr_t1): {continuity_gap:.4f}")
+                print(f"     Continuity gap (prev_t2 -> curr_t1): {fmt(continuity_gap)}")
 
         if step % 10 == 0 or args.verbose:
-            print(f"  XYZ diff (t1→t2): {xyz_diff:.4f}, Queue: {queue_size}")
+            print(f"  Queue: {queue_size}")
             if continuity_gap is not None:
-                print(f"  Continuity (prev_t2→t1): {continuity_gap:.4f}")
+                print(f"  Continuity (prev_t2->t1): {fmt(continuity_gap)}")
 
         # Store for next iteration
         prev_xyz_2 = xyz_2.copy()
 
-        log_entry += f"Decoded EE Actions (timestep 1):\n"
-        log_entry += f"  Position (XYZ): [{xyz_1[0]:.4f}, {xyz_1[1]:.4f}, {xyz_1[2]:.4f}]\n"
-        log_entry += f"  Rotation (6D):  [{rot6d_1[0]:.4f}, {rot6d_1[1]:.4f}, {rot6d_1[2]:.4f}, {rot6d_1[3]:.4f}, {rot6d_1[4]:.4f}, {rot6d_1[5]:.4f}]\n"
-        log_entry += f"  Gripper:        {gripper_1:.4f}\n\n"
+        log_entry += f"Decoded EE Actions (timestep 1) - ABSOLUTE target:\n"
+        log_entry += f"  Target XYZ:     {fmt_vec(xyz_1)}\n"
+        log_entry += f"  Target Rot6D:   {fmt_vec(rot6d_1)}\n"
+        log_entry += f"  Gripper:        {fmt(gripper_1)}\n\n"
 
-        log_entry += f"Decoded EE Actions (timestep 2):\n"
-        log_entry += f"  Position (XYZ): [{xyz_2[0]:.4f}, {xyz_2[1]:.4f}, {xyz_2[2]:.4f}]\n"
-        log_entry += f"  XYZ diff (t1→t2): {xyz_diff:.4f}\n"
-
-        # Test delta encoding hypothesis
-        xyz_sum = xyz_1 + xyz_2
-        log_entry += f"\n  🔍 Delta Hypothesis Test:\n"
-        log_entry += f"     t1 + t2 = [{xyz_sum[0]:.4f}, {xyz_sum[1]:.4f}, {xyz_sum[2]:.4f}]\n"
-        log_entry += f"     Magnitude ratio (t2/t1): {np.linalg.norm(xyz_2)/np.linalg.norm(xyz_1):.4f}\n\n"
+        log_entry += f"Decoded EE Actions (timestep 2) - ABSOLUTE target:\n"
+        log_entry += f"  Target XYZ:     {fmt_vec(xyz_2)}\n"
+        log_entry += f"  Target Rot6D:   {fmt_vec(rot6d_2)}\n"
+        log_entry += f"  Gripper:        {fmt(gripper_2)}\n\n"
 
         log_entry += f"Temporal Analysis:\n"
         log_entry += f"  Queue size: {queue_size} {'(NEW CHUNK)' if is_new_chunk else ''}\n"
         if continuity_gap is not None:
-            log_entry += f"  Continuity gap (prev_t2 → curr_t1): {continuity_gap:.4f}\n"
+            log_entry += f"  Continuity gap (prev_t2 -> curr_t1): {fmt(continuity_gap)}\n"
 
-        log_entry += f"Current State:\n"
-        log_entry += f"  Current EE pos: [{current_ee_pos[0]:.4f}, {current_ee_pos[1]:.4f}, {current_ee_pos[2]:.4f}]\n"
-        log_entry += f"  Current EE 6D:  {rotation_matrix_to_6d(current_ee_rot)}\n"
+        log_entry += f"\nCurrent State:\n"
+        log_entry += f"  Current EE pos: {fmt_vec(current_ee_pos)}\n"
+        log_entry += f"  Current EE 6D:  {fmt_vec(rotation_matrix_to_6d(current_ee_rot))}\n"
+
+        # Direction analysis: xyz_1 is ABSOLUTE target, not delta
+        # Delta = target - current
+        action_delta = xyz_1 - current_ee_pos
 
         if cube_pos is not None:
-            log_entry += f"  Cube position:  [{cube_pos[0]:.4f}, {cube_pos[1]:.4f}, {cube_pos[2]:.4f}]\n"
+            cube_direction = cube_pos - current_ee_pos
 
-            # Check if action points toward cube
-            # xyz_1 is a DELTA (relative position change), not absolute position
-            action_direction = xyz_1  # Already a direction vector (delta)
-            cube_direction = cube_pos - current_ee_pos  # Direction from EE to cube
+            # Normalize directions for alignment check
+            delta_norm = np.linalg.norm(action_delta)
+            cube_dist = np.linalg.norm(cube_direction)
+            if delta_norm > 1e-8 and cube_dist > 1e-8:
+                alignment = np.dot(
+                    action_delta / delta_norm,
+                    cube_direction / cube_dist,
+                )
+            else:
+                alignment = 0.0
 
-            # Normalize directions
-            action_dir_norm = action_direction / (np.linalg.norm(action_direction) + 1e-8)
-            cube_dir_norm = cube_direction / (np.linalg.norm(cube_direction) + 1e-8)
-
-            # Dot product indicates alignment
-            alignment = np.dot(action_dir_norm, cube_dir_norm)
-
-            log_entry += f"\nDirection Analysis (xyz_1 is DELTA, not absolute):\n"
-            log_entry += f"  Action delta:     [{action_direction[0]:.4f}, {action_direction[1]:.4f}, {action_direction[2]:.4f}]\n"
-            log_entry += f"  Cube direction:   [{cube_direction[0]:.4f}, {cube_direction[1]:.4f}, {cube_direction[2]:.4f}]\n"
-            log_entry += f"  Alignment (dot):  {alignment:.4f} {'✓ Points toward cube' if alignment > 0.5 else '✗ Not aligned'}\n"
-            log_entry += f"  Distance to cube: {np.linalg.norm(cube_direction):.4f}m\n"
-            log_entry += f"  Target EE (curr + delta): [{(current_ee_pos[0]+xyz_1[0]):.4f}, {(current_ee_pos[1]+xyz_1[1]):.4f}, {(current_ee_pos[2]+xyz_1[2]):.4f}]\n"
+            log_entry += f"  Cube position:  {fmt_vec(cube_pos)}\n"
+            log_entry += f"\nDirection Analysis (xyz_1 is ABSOLUTE target):\n"
+            log_entry += f"  Action delta (target - current): {fmt_vec(action_delta)}\n"
+            log_entry += f"  Cube direction  (cube - current): {fmt_vec(cube_direction)}\n"
+            log_entry += f"  Alignment (dot):  {fmt(alignment)} {'-> toward cube' if alignment > 0.3 else '-> AWAY from cube' if alignment < -0.3 else '-> orthogonal'}\n"
+            log_entry += f"  Delta magnitude:  {fmt(delta_norm)}m\n"
+            log_entry += f"  Distance to cube: {fmt(cube_dist)}m\n"
+            log_entry += f"  Target dist to cube: {fmt(np.linalg.norm(xyz_1 - cube_pos))}m\n"
     else:
-        log_entry += f"⚠️  Action vector too short: {len(actions_np)}, expected 20 for EE6D\n"
+        log_entry += f"Action vector too short: {len(actions_np)}, expected 20 for EE6D\n"
 
     log_file.write(log_entry)
     log_file.flush()
@@ -453,13 +504,14 @@ while True:
     # Print summary to console
     if step % 10 == 0 or args.verbose:
         print(f"\n--- Step {step} ---")
-        print(f"  Raw actions (first 7): {actions_np[:7]}")
+        print(f"  Proprio (8D): {fmt_vec(ee_state_8d)}")
         if len(actions_np) >= 20:
-            print(f"  Target EE pos: [{xyz_1[0]:.3f}, {xyz_1[1]:.3f}, {xyz_1[2]:.3f}]")
-            print(f"  Current EE pos: [{current_ee_pos[0]:.3f}, {current_ee_pos[1]:.3f}, {current_ee_pos[2]:.3f}]")
+            print(f"  Target EE:  {fmt_vec(xyz_1)}")
+            print(f"  Current EE: {fmt_vec(current_ee_pos)}")
+            print(f"  Delta:      {fmt_vec(action_delta)}")
             if cube_pos is not None:
-                print(f"  Cube pos: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
-                print(f"  Alignment: {alignment:.3f}")
+                print(f"  Cube:       {fmt_vec(cube_pos)}")
+                print(f"  Alignment:  {fmt(alignment)}")
 
     # Manual control: user controls joints via UI sliders (data.ctrl is set by viewer)
     # VLA actions are logged but not applied (proper IK/impedance control not yet implemented)
@@ -471,29 +523,27 @@ while True:
     if hasattr(policy, '_queues') and 'action' in policy._queues:
         action_queue = policy._queues['action']
         if len(action_queue) > 0:
-            # Extract XYZ deltas from queued actions (up to 10 markers)
-            trajectory_deltas = []
+            # Extract ABSOLUTE target XYZ from queued actions (up to 10 markers)
+            trajectory_targets = []
             for queued_action in list(action_queue)[:10]:
-                # Each action is 20D, extract first XYZ (indices 0-2)
+                # Each action is 20D, first 3 = absolute target XYZ
                 if isinstance(queued_action, torch.Tensor):
-                    delta_xyz = queued_action.flatten()[:3].cpu().numpy()
+                    target_xyz = queued_action.flatten()[:3].cpu().numpy()
                 else:
-                    delta_xyz = np.array(queued_action).flatten()[:3]
-                trajectory_deltas.append(delta_xyz)
+                    target_xyz = np.array(queued_action).flatten()[:3]
+                trajectory_targets.append(target_xyz)
 
             # Update mocap body positions to show trajectory markers
-            cumulative_pos = current_ee_pos.copy()
-            for i, delta_xyz in enumerate(trajectory_deltas):
-                cumulative_pos = cumulative_pos + delta_xyz
+            for i, target_xyz in enumerate(trajectory_targets):
                 try:
                     mocap_id = model.body(f'traj_marker_{i}').mocapid[0]
                     if mocap_id >= 0:
-                        data.mocap_pos[mocap_id] = cumulative_pos
+                        data.mocap_pos[mocap_id] = target_xyz
                 except:
                     pass
 
             # Hide unused markers (move them underground)
-            for i in range(len(trajectory_deltas), 10):
+            for i in range(len(trajectory_targets), 10):
                 try:
                     mocap_id = model.body(f'traj_marker_{i}').mocapid[0]
                     if mocap_id >= 0:
@@ -503,23 +553,18 @@ while True:
 
             # Print trajectory preview every 10 steps
             if step % 10 == 0 or is_new_chunk:
-                print(f"\n  🎯 Predicted Trajectory (next {len(trajectory_deltas)} steps):")
-                print(f"     Current EE: [{current_ee_pos[0]:.3f}, {current_ee_pos[1]:.3f}, {current_ee_pos[2]:.3f}]")
+                print(f"\n  Predicted Trajectory (next {len(trajectory_targets)} targets):")
+                print(f"     Current EE: {fmt_vec(current_ee_pos)}")
                 if cube_pos is not None:
-                    print(f"     Cube pos:   [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
+                    print(f"     Cube pos:   {fmt_vec(cube_pos)}")
 
-                cumulative_pos = current_ee_pos.copy()
-                for i, delta_xyz in enumerate(trajectory_deltas[:5]):  # Show first 5
-                    if i == 0:
-                        print(f"     Delta[{i}]: [{delta_xyz[0]:.4f}, {delta_xyz[1]:.4f}, {delta_xyz[2]:.4f}]")
-
-                    cumulative_pos = cumulative_pos + delta_xyz
-                    dist_to_cube = np.linalg.norm(cumulative_pos - cube_pos) if cube_pos is not None else 0
+                for i, target_xyz in enumerate(trajectory_targets[:5]):  # Show first 5
+                    dist_to_cube = np.linalg.norm(target_xyz - cube_pos) if cube_pos is not None else 0
                     marker = "🟢" if i < 2 else "🟡" if i < 4 else "🔴"
-                    print(f"     {marker} +{i+1}: [{cumulative_pos[0]:.3f}, {cumulative_pos[1]:.3f}, {cumulative_pos[2]:.3f}] "
-                          f"(dist to cube: {dist_to_cube:.3f}m)")
-                if len(trajectory_deltas) > 5:
-                    print(f"     ... ({len(trajectory_deltas) - 5} more steps in queue)")
+                    print(f"     {marker} +{i+1}: {fmt_vec(target_xyz)} "
+                          f"(dist to cube: {fmt(dist_to_cube)}m)")
+                if len(trajectory_targets) > 5:
+                    print(f"     ... ({len(trajectory_targets) - 5} more steps in queue)")
 
     viewer.sync()
 
