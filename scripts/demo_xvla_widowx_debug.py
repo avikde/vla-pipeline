@@ -76,7 +76,15 @@ try:
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
 
-    print(f"  ✓ Model loaded")
+    # Initialize robot joints to home pose (avoids finger collision at qpos=0)
+    # Only set the 8 robot joint qpos, not the freejoint qpos for objects
+    home_qpos = model.keyframe('home').qpos
+    n_robot_joints = 8  # 6 arm + 2 finger
+    data.qpos[:n_robot_joints] = home_qpos[:n_robot_joints]
+    data.ctrl[:] = model.keyframe('home').ctrl
+    mujoco.mj_forward(model, data)
+
+    print(f"  ✓ Model loaded (initialized to 'home' keyframe)")
     print(f"     - nq (positions): {model.nq}")
     print(f"     - nv (velocities): {model.nv}")
     print(f"     - nu (actuators): {model.nu}")
