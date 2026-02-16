@@ -1,5 +1,8 @@
 # VLA Pipeline for SO-101 Robot
 
+https://colab.research.google.com/github/avikde/vla-pipeline/blob/ipynb/notebooks/xvla_widowx_vis_traj.ipynb
+
+
 Vision-Language-Action model integration with the SO-101 robot arm using MuJoCo simulation and SmolVLA.
 
 Software used:
