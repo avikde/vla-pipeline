@@ -15,20 +15,55 @@ import argparse
 import mujoco
 import numpy as np
 import torch
-from PIL import Image
-import time
 import sys
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='X-VLA with WidowX Robot - Debug')
-parser.add_argument('--steps', type=int, default=100, help='Number of simulation steps')
-parser.add_argument('--headless', action='store_true', help='Run without GUI')
 parser.add_argument('--verbose', action='store_true', help='Print detailed action info every step')
 args = parser.parse_args()
 
 print("=" * 60)
 print("X-VLA WidowX Demo - DEBUG MODE")
 print("=" * 60)
+
+# Helper functions (defined before use)
+def add_trajectory_sites_to_xml(xml_path, output_path, num_sites=10):
+    """
+    Add visualization sites to the MuJoCo XML for trajectory markers.
+    This modifies the XML file to include mocap bodies for visualization.
+    """
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    # Find or create worldbody
+    worldbody = root.find('worldbody')
+    if worldbody is None:
+        worldbody = ET.SubElement(root, 'worldbody')
+
+    # Add mocap bodies for trajectory visualization
+    for i in range(num_sites):
+        mocap = ET.SubElement(worldbody, 'body', {
+            'name': f'traj_marker_{i}',
+            'mocap': 'true',
+            'pos': '0 0 -10'  # Start hidden underground
+        })
+        # Add a small sphere geom
+        fade = i / max(1, num_sites - 1)
+        rgba = f"{fade} {1-fade} 0 0.6"  # Green→Red gradient
+        ET.SubElement(mocap, 'geom', {
+            'type': 'sphere',
+            'size': '0.01',
+            'rgba': rgba,
+            'contype': '0',
+            'conaffinity': '0',
+            'group': '1'
+        })
+
+    tree.write(output_path)
+    print(f"  📝 Created modified scene with trajectory markers: {output_path}")
+    return output_path
 
 # Load X-VLA policy
 print("\n[1/7] Loading X-VLA WidowX policy...")
@@ -69,7 +104,13 @@ except ImportError as e:
 # Load WidowX MuJoCo model
 print("\n[2/7] Loading WidowX MuJoCo model...")
 try:
-    model = mujoco.MjModel.from_xml_path('assets/widowx/widowx_vision_scene.xml')
+    # Create modified XML with trajectory markers
+    xml_path = 'assets/widowx/widowx_vision_scene.xml'
+    modified_xml = 'assets/widowx/widowx_vision_scene_with_markers.xml'
+    add_trajectory_sites_to_xml(xml_path, modified_xml, num_sites=10)
+    xml_path = modified_xml
+
+    model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
 
     print(f"  ✓ Model loaded")
@@ -122,6 +163,53 @@ def get_ee_pose(model, data):
 def rotation_matrix_to_6d(rot_mat):
     """Convert 3x3 rotation matrix to 6D representation (first two columns)."""
     return rot_mat[:, :2].flatten()
+
+def rotation_matrix_to_euler(rot_mat):
+    """Convert 3x3 rotation matrix to roll, pitch, yaw (XYZ Euler angles).
+
+    This matches the BridgeData convention for observation.state.
+    """
+    # Extract pitch from R[2,0]
+    sy = np.sqrt(rot_mat[0, 0]**2 + rot_mat[1, 0]**2)
+    singular = sy < 1e-6
+    if not singular:
+        roll = np.arctan2(rot_mat[2, 1], rot_mat[2, 2])
+        pitch = np.arctan2(-rot_mat[2, 0], sy)
+        yaw = np.arctan2(rot_mat[1, 0], rot_mat[0, 0])
+    else:
+        roll = np.arctan2(-rot_mat[1, 2], rot_mat[1, 1])
+        pitch = np.arctan2(-rot_mat[2, 0], sy)
+        yaw = 0.0
+    return roll, pitch, yaw
+
+def get_ee_state_8d(model, data):
+    """Get the 8D end-effector state matching BridgeData observation.state format.
+
+    Returns: np.array of shape (8,) with [x, y, z, roll, pitch, yaw, pad, gripper]
+
+    BridgeData convention (from IPEC-COMMUNITY/bridge_orig_lerobot):
+      [0] x       - EE position X
+      [1] y       - EE position Y
+      [2] z       - EE position Z
+      [3] roll    - EE rotation roll
+      [4] pitch   - EE rotation pitch
+      [5] yaw     - EE rotation yaw
+      [6] pad     - Always 0
+      [7] gripper - Gripper openness (left_finger joint position)
+    """
+    ee_pos, ee_rot = get_ee_pose(model, data)
+    roll, pitch, yaw = rotation_matrix_to_euler(ee_rot)
+
+    # Gripper state: left_finger joint position
+    gripper_joint_id = model.joint("left_finger").id
+    gripper_pos = data.qpos[gripper_joint_id]
+
+    return np.array([
+        ee_pos[0], ee_pos[1], ee_pos[2],
+        roll, pitch, yaw,
+        0.0,          # pad
+        gripper_pos,  # gripper
+    ], dtype=np.float32)
 
 def get_cube_position(model, data, cube_name="red_block"):
     """Get position of the target cube."""
@@ -190,30 +278,30 @@ print(f"  ✓ Physics settled")
 initial_ee_pos, initial_ee_rot = get_ee_pose(model, data)
 cube_pos = get_cube_position(model, data)
 
+initial_ee_state = get_ee_state_8d(model, data)
+
 print(f"\n  📍 Initial State:")
 print(f"     - EE position: [{initial_ee_pos[0]:.3f}, {initial_ee_pos[1]:.3f}, {initial_ee_pos[2]:.3f}]")
+print(f"     - EE state (8D): {initial_ee_state}")
+print(f"       [x={initial_ee_state[0]:.3f}, y={initial_ee_state[1]:.3f}, z={initial_ee_state[2]:.3f}, "
+      f"roll={initial_ee_state[3]:.3f}, pitch={initial_ee_state[4]:.3f}, yaw={initial_ee_state[5]:.3f}, "
+      f"pad={initial_ee_state[6]:.3f}, gripper={initial_ee_state[7]:.3f}]")
 if cube_pos is not None:
     print(f"     - Cube position: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
     dist_to_cube = np.linalg.norm(initial_ee_pos - cube_pos)
     print(f"     - Distance to cube: {dist_to_cube:.3f}m")
 
-# Launch viewer if GUI mode
+# Launch viewer
 print("\n[6/7] Launching viewer...")
-viewer = None
-if not args.headless:
-    try:
-        import mujoco.viewer as mj_viewer
-        viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False)
-        viewer.cam.distance = 0.8
-        viewer.cam.azimuth = 45
-        viewer.cam.elevation = -20
-        viewer.cam.lookat[:] = [0.2, 0.0, 0.2]
-        print(f"  ✓ Viewer launched")
-    except Exception as e:
-        print(f"  ⚠️  Viewer failed: {e}")
-        args.headless = True
-else:
-    print(f"  Running headless")
+import mujoco.viewer as mj_viewer
+viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=True)
+viewer.cam.distance = 0.8
+viewer.cam.azimuth = 45
+viewer.cam.elevation = -20
+viewer.cam.lookat[:] = [0.2, 0.0, 0.2]
+print(f"  ✓ Viewer launched (manual control via right panel sliders)")
+print(f"  🎯 Trajectory visualization enabled")
+print(f"  Close the viewer window to stop.")
 
 # Simulation loop
 print("\n[7/7] Running X-VLA inference loop...")
@@ -229,10 +317,9 @@ log_file.write("=" * 80 + "\n\n")
 
 # Track previous action's timestep_2 to check continuity
 prev_xyz_2 = None
+step = 0
 
-for step in range(args.steps):
-    iter_start = time.time()
-
+while True:
     # 1. Render cameras (matching X-VLA WidowX training: "up" and "side")
     try:
         img_up = render_camera('up')
@@ -245,14 +332,15 @@ for step in range(args.steps):
     img_up_tensor = preprocess_image(img_up, device=device)
     img_side_tensor = preprocess_image(img_side, device=device)
 
-    # Get robot state (6 arm joint positions)
-    robot_qpos = data.qpos[:6]
+    # Get robot state as 8D EE state matching BridgeData format:
+    # [x, y, z, roll, pitch, yaw, pad, gripper]
+    ee_state_8d = get_ee_state_8d(model, data)
 
     # X-VLA WidowX expects specific observation keys
     observation = {
         'observation.images.image': img_up_tensor,
         'observation.images.image2': img_side_tensor,
-        'observation.state': torch.from_numpy(robot_qpos).float().unsqueeze(0).to(device),
+        'observation.state': torch.from_numpy(ee_state_8d).float().unsqueeze(0).to(device),
         'observation.language.tokens': language_tokens,
         'observation.language.attention_mask': language_attention_mask,
     }
@@ -339,8 +427,9 @@ for step in range(args.steps):
             log_entry += f"  Cube position:  [{cube_pos[0]:.4f}, {cube_pos[1]:.4f}, {cube_pos[2]:.4f}]\n"
 
             # Check if action points toward cube
-            action_direction = xyz_1 - current_ee_pos
-            cube_direction = cube_pos - current_ee_pos
+            # xyz_1 is a DELTA (relative position change), not absolute position
+            action_direction = xyz_1  # Already a direction vector (delta)
+            cube_direction = cube_pos - current_ee_pos  # Direction from EE to cube
 
             # Normalize directions
             action_dir_norm = action_direction / (np.linalg.norm(action_direction) + 1e-8)
@@ -349,11 +438,12 @@ for step in range(args.steps):
             # Dot product indicates alignment
             alignment = np.dot(action_dir_norm, cube_dir_norm)
 
-            log_entry += f"\nDirection Analysis:\n"
-            log_entry += f"  Action direction: [{action_direction[0]:.4f}, {action_direction[1]:.4f}, {action_direction[2]:.4f}]\n"
+            log_entry += f"\nDirection Analysis (xyz_1 is DELTA, not absolute):\n"
+            log_entry += f"  Action delta:     [{action_direction[0]:.4f}, {action_direction[1]:.4f}, {action_direction[2]:.4f}]\n"
             log_entry += f"  Cube direction:   [{cube_direction[0]:.4f}, {cube_direction[1]:.4f}, {cube_direction[2]:.4f}]\n"
             log_entry += f"  Alignment (dot):  {alignment:.4f} {'✓ Points toward cube' if alignment > 0.5 else '✗ Not aligned'}\n"
             log_entry += f"  Distance to cube: {np.linalg.norm(cube_direction):.4f}m\n"
+            log_entry += f"  Target EE (curr + delta): [{(current_ee_pos[0]+xyz_1[0]):.4f}, {(current_ee_pos[1]+xyz_1[1]):.4f}, {(current_ee_pos[2]+xyz_1[2]):.4f}]\n"
     else:
         log_entry += f"⚠️  Action vector too short: {len(actions_np)}, expected 20 for EE6D\n"
 
@@ -371,20 +461,73 @@ for step in range(args.steps):
                 print(f"  Cube pos: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
                 print(f"  Alignment: {alignment:.3f}")
 
-    # ===== TEMPORARY: Still apply actions incorrectly for now to see behavior =====
-    # TODO: This needs to be replaced with proper IK or impedance control
-    robot_actions = actions_np[:7] if len(actions_np) >= 7 else np.pad(actions_np, (0, 7-len(actions_np)))
-    data.ctrl[:model.nu] = np.clip(robot_actions[:model.nu] * 0.1, -1.0, 1.0)
+    # Manual control: user controls joints via UI sliders (data.ctrl is set by viewer)
+    # VLA actions are logged but not applied (proper IK/impedance control not yet implemented)
 
     # 4. Step simulation
     mujoco.mj_step(model, data)
 
-    # 5. Viewer sync
-    if viewer is not None:
-        viewer.sync()
-        if not viewer.is_running():
-            print(f"\nViewer closed at step {step}")
-            break
+    # 5. Viewer sync and trajectory visualization
+    if hasattr(policy, '_queues') and 'action' in policy._queues:
+        action_queue = policy._queues['action']
+        if len(action_queue) > 0:
+            # Extract XYZ deltas from queued actions (up to 10 markers)
+            trajectory_deltas = []
+            for queued_action in list(action_queue)[:10]:
+                # Each action is 20D, extract first XYZ (indices 0-2)
+                if isinstance(queued_action, torch.Tensor):
+                    delta_xyz = queued_action.flatten()[:3].cpu().numpy()
+                else:
+                    delta_xyz = np.array(queued_action).flatten()[:3]
+                trajectory_deltas.append(delta_xyz)
+
+            # Update mocap body positions to show trajectory markers
+            cumulative_pos = current_ee_pos.copy()
+            for i, delta_xyz in enumerate(trajectory_deltas):
+                cumulative_pos = cumulative_pos + delta_xyz
+                try:
+                    mocap_id = model.body(f'traj_marker_{i}').mocapid[0]
+                    if mocap_id >= 0:
+                        data.mocap_pos[mocap_id] = cumulative_pos
+                except:
+                    pass
+
+            # Hide unused markers (move them underground)
+            for i in range(len(trajectory_deltas), 10):
+                try:
+                    mocap_id = model.body(f'traj_marker_{i}').mocapid[0]
+                    if mocap_id >= 0:
+                        data.mocap_pos[mocap_id] = [0, 0, -10]
+                except:
+                    pass
+
+            # Print trajectory preview every 10 steps
+            if step % 10 == 0 or is_new_chunk:
+                print(f"\n  🎯 Predicted Trajectory (next {len(trajectory_deltas)} steps):")
+                print(f"     Current EE: [{current_ee_pos[0]:.3f}, {current_ee_pos[1]:.3f}, {current_ee_pos[2]:.3f}]")
+                if cube_pos is not None:
+                    print(f"     Cube pos:   [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
+
+                cumulative_pos = current_ee_pos.copy()
+                for i, delta_xyz in enumerate(trajectory_deltas[:5]):  # Show first 5
+                    if i == 0:
+                        print(f"     Delta[{i}]: [{delta_xyz[0]:.4f}, {delta_xyz[1]:.4f}, {delta_xyz[2]:.4f}]")
+
+                    cumulative_pos = cumulative_pos + delta_xyz
+                    dist_to_cube = np.linalg.norm(cumulative_pos - cube_pos) if cube_pos is not None else 0
+                    marker = "🟢" if i < 2 else "🟡" if i < 4 else "🔴"
+                    print(f"     {marker} +{i+1}: [{cumulative_pos[0]:.3f}, {cumulative_pos[1]:.3f}, {cumulative_pos[2]:.3f}] "
+                          f"(dist to cube: {dist_to_cube:.3f}m)")
+                if len(trajectory_deltas) > 5:
+                    print(f"     ... ({len(trajectory_deltas) - 5} more steps in queue)")
+
+    viewer.sync()
+
+    if not viewer.is_running():
+        print(f"\nViewer closed at step {step}")
+        break
+
+    step += 1
 
 print("\n" + "=" * 60)
 print("Demo complete!")
@@ -393,8 +536,7 @@ print(f"\n📝 Detailed action log saved to: xvla_action_debug.log")
 
 # Cleanup
 log_file.close()
-if viewer is not None:
-    viewer.close()
+viewer.close()
 
 print("\n🔍 Debugging Summary:")
 print("  ✓ Verified X-VLA action mode configuration")
