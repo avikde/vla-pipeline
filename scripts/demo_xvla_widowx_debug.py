@@ -227,12 +227,7 @@ def decode_ee6d_action(action_vec):
     rot6d_1 = action_vec[3:9]
     gripper_1 = action_vec[9]
 
-    # Extract second timestep (indices 10-19)
-    xyz_2 = action_vec[10:13]
-    rot6d_2 = action_vec[13:19]
-    gripper_2 = action_vec[19]
-
-    return xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2
+    return xyz_1, rot6d_1, gripper_1
 
 # Task instruction
 print("\n[4/7] Setting up task...")
@@ -417,17 +412,12 @@ while True:
 
     # Decode EE actions
     if len(actions_np) >= 20:
-        xyz_1, rot6d_1, gripper_1, xyz_2, rot6d_2, gripper_2 = decode_ee6d_action(actions_np)
+        xyz_1, rot6d_1, gripper_1 = decode_ee6d_action(actions_np)
 
         log_entry += f"Decoded EE Actions (timestep 1) - ABSOLUTE target:\n"
         log_entry += f"  Target XYZ:     {fmt_vec(xyz_1)}\n"
         log_entry += f"  Target Rot6D:   {fmt_vec(rot6d_1)}\n"
         log_entry += f"  Gripper:        {fmt(gripper_1)}\n\n"
-
-        log_entry += f"Decoded EE Actions (timestep 2) - ABSOLUTE target:\n"
-        log_entry += f"  Target XYZ:     {fmt_vec(xyz_2)}\n"
-        log_entry += f"  Target Rot6D:   {fmt_vec(rot6d_2)}\n"
-        log_entry += f"  Gripper:        {fmt(gripper_2)}\n\n"
 
         log_entry += f"Temporal Analysis:\n"
         log_entry += f"  Queue size: {queue_size} {'(NEW CHUNK)' if is_new_chunk else ''}\n"
