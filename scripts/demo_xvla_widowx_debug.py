@@ -337,17 +337,13 @@ step = 0
 cached_action_targets = []  # First 10 XYZ targets from the most recent VLA chunk
 
 while True:
-    # 1. Render cameras (matching X-VLA WidowX training: "up" and "side")
-    try:
-        img_up = render_camera('up')
-        img_side = render_camera('side')
-    except:
-        img_up = render_camera('third_person')
-        img_side = img_up
+    # 1. Render cameras https://rail-berkeley.github.io/bridgedata/
+    img = render_camera('up')
+    img2 = render_camera('side')
 
     # 2. Preprocess for X-VLA
-    img_up_tensor = preprocess_image(img_up, device=device)
-    img_side_tensor = preprocess_image(img_side, device=device)
+    img_tensor = preprocess_image(img, device=device)
+    img2_tensor = preprocess_image(img2, device=device)
 
     # Get robot state as 8D EE state matching BridgeData format:
     # [x, y, z, roll, pitch, yaw, pad, gripper]
@@ -355,8 +351,8 @@ while True:
 
     # X-VLA WidowX expects specific observation keys
     observation = {
-        'observation.images.image': img_up_tensor,
-        'observation.images.image2': img_side_tensor,
+        'observation.images.image': img_tensor,
+        'observation.images.image2': img2_tensor,
         'observation.state': torch.from_numpy(ee_state_8d).float().unsqueeze(0).to(device),
         'observation.language.tokens': language_tokens,
         'observation.language.attention_mask': language_attention_mask,
