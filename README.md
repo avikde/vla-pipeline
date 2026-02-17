@@ -5,12 +5,15 @@ Vision-Language-Action model integration with low-level control using MuJoCo sim
 Software used:
 - **PyTorch 2.10.0 with CUDA 12.8** (need CUDA 12.8 for Blackwell/sm_120 support)
 - LeRobot 0.4.3 with X-VLA
-<!-- - JAX 0.9.0.1 with CUDA 12 support + MJX (**TODO**) -->
 - MuJoCo
+
+<!-- - JAX 0.9.0.1 with CUDA 12 support + MJX (**TODO**) -->
 
 ## Jupyter Notebook (start here)
 
-- [X-VLA with WidowX arm - prompt to trajectory visualization](https://colab.research.google.com/github/avikde/vla-pipeline/blob/main/xvla_widowx_vis_traj.ipynb)
+👇 X-VLA with WidowX arm - prompt to trajectory visualization
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/avikde/vla-pipeline/blob/main/xvla_widowx_vis_traj.ipynb)
 
 ## Local Installation
 
@@ -88,6 +91,7 @@ This demonstrates X-VLA's modular soft prompt architecture using the WidowX robo
 
 ## Acknowledgements
 
-- **SO-101 Robot Models:** URDF and MuJoCo XML files sourced from [TheRobotStudio/SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100)
-- **SmolVLA Model:** Pre-trained model from [HuggingFace LeRobot](https://huggingface.co/lerobot/smolvla_base)
+<!-- - **SO-101 Robot Models:** URDF and MuJoCo XML files sourced from [TheRobotStudio/SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100)
+- **SmolVLA Model:** Pre-trained model from [HuggingFace LeRobot](https://huggingface.co/lerobot/smolvla_base) -->
 - **LeRobot Framework:** Open-source robotics ML framework by HuggingFace
+- **WidowX model:** From [google-deepmind/mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie/tree/main/trossen_wx250s)
