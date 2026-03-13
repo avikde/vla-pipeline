@@ -4,6 +4,8 @@ X-VLA with WidowX Robot Demo - DEBUG VERSION
 
 Run with --no-vla to skip model loading and use a reference policy instead.
 Run with --verbose to print per-step action/alignment info to stdout.
+Run with --step-size 0.005 to slow the reference policy.
+Run with --kp 10 to lower arm position control gains.
 """
 
 import argparse
@@ -23,6 +25,10 @@ parser.add_argument('--verbose', '-v', action='store_true', help='Print per-step
 parser.add_argument('--no-vla', '-n', action='store_true', help='Skip VLA loading; use reference policy instead')
 parser.add_argument('--dry-run', '-d', action='store_true',
                     help='Visualize trajectory dots only; skip IK and control application')
+parser.add_argument('--step-size', type=float, default=0.02,
+                    help='EE step size per timestep for reference policy (m). Default=0.02')
+parser.add_argument('--kp', type=float, default=None,
+                    help='Override arm joint position gain kp (default: model value ~50)')
 args = parser.parse_args()
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
@@ -63,8 +69,15 @@ try:
     data.qpos[:n_robot_joints] = home_qpos[:n_robot_joints]
     data.ctrl[:] = model.keyframe('home').ctrl
     mujoco.mj_forward(model, data)
+
+    if args.kp is not None:
+        for i in range(6):  # arm joints only (skip gripper at index 6)
+            model.actuator_gainprm[i, 0] = args.kp
+            model.actuator_biasprm[i, 1] = -args.kp
+        print(f"  ✓ Arm kp overridden to {args.kp}")
+
     for i in range(model.nu):
-        print(f"     [{i}] {model.actuator(i).name}: range={model.actuator_ctrlrange[i]} limited={model.actuator_ctrllimited[i]}")
+        print(f"     [{i}] {model.actuator(i).name}: kp={model.actuator_gainprm[i, 0]:.1f}  range={model.actuator_ctrlrange[i]} limited={model.actuator_ctrllimited[i]}")
 
 except Exception as e:
     print(f"❌ Error loading WidowX model: {e}")
@@ -129,12 +142,15 @@ if cube_pos is not None:
     print(f"     - Cube position: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
     print(f"     - Distance to cube: {np.linalg.norm(initial_ee_pos - cube_pos):.3f}m")
 
-# Build controller (allocates scratch MjData + caches IDs once)
-controller = ctrl.WidowXController(model)
+# Build controller (allocates scratch MjData + caches IDs once).
+# Orientation IK disabled: the no-VLA reference keeps current Euler angles which
+# causes wrist_rotate to spin through singularities. Position-only IK is sufficient
+# for validating reach behaviour.
+controller = ctrl.WidowXController(model, use_orientation=False)
 
 # Launch viewer
 print("\n[6/7] Launching viewer...")
-viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=True)
+viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=args.dry_run)
 viewer.cam.distance = 0.8
 viewer.cam.azimuth = 45
 viewer.cam.elevation = -20
@@ -182,14 +198,16 @@ while True:
                     cached_action_targets.append(np.array(queued_action).flatten()[:10])
     else:
         block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
-        actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos)
+        actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos, step_size=args.step_size)
         queue_size = 0
         is_new_chunk = True
-        # Build NUM_MARKERS full 10D waypoints along the path to the block
+        # Build NUM_MARKERS full 10D waypoints along the path to the block.
+        # Start at t=1/NUM_MARKERS so cached_action_targets[0] is one step ahead,
+        # not the current position.
         current_xyz = ee_state_8d[0:3]
         rot6d = xvla.rotation_matrix_to_6d(xvla.euler_to_rotation_matrix(*ee_state_8d[3:6]))
         cached_action_targets = []
-        for t in np.linspace(0, 1, NUM_MARKERS):
+        for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
             wp = np.zeros(10, dtype=np.float32)
             wp[0:3] = current_xyz + (block_pos - current_xyz) * t
             wp[3:9] = rot6d
@@ -215,7 +233,7 @@ while True:
 
     # 4. IK + control (skipped in --dry-run mode)
     if not args.dry_run and cached_action_targets:
-        ctrl_target = controller.solve_ik(data.qpos, cached_action_targets)
+        ctrl_target = controller.solve_ik(data.qpos, cached_action_targets, debug=args.verbose)
         if ctrl_target is not None:
             controller.apply_control(data.ctrl, ctrl_target)
 

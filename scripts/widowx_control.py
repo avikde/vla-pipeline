@@ -104,6 +104,7 @@ class WidowXController:
         qpos: np.ndarray,
         action_trajectory: list[np.ndarray],
         action_idx: int = 0,
+        debug: bool = False,
     ) -> np.ndarray | None:
         """Solve IK for one action from the trajectory and return ctrl[0:7].
 
@@ -111,6 +112,7 @@ class WidowXController:
             qpos:              Current generalized positions (used as IK seed).
             action_trajectory: List of 10D ee6d arrays [xyz, rot6d, gripper].
             action_idx:        Which action in the trajectory to target.
+            debug:             If True, print FK validation (target vs achieved EE pos).
 
         Returns:
             ctrl_target: float32 array of shape (7,) — arm joint positions +
@@ -127,7 +129,8 @@ class WidowXController:
         scratch.qpos[:] = qpos
         scratch.qvel[:] = 0.0
 
-        for _ in range(self._max_iter):
+        iters = 0
+        for iters in range(self._max_iter):
             mujoco.mj_forward(self._model, scratch)
 
             pos_err = target_pos - scratch.xpos[self._ee_id]
@@ -177,6 +180,21 @@ class WidowXController:
         ctrl_target = np.zeros(7, dtype=np.float32)
         ctrl_target[0:6] = joint_positions
         ctrl_target[6]   = gripper_action_to_ctrl(gripper_val)
+
+        if debug:
+            # FK validation: run forward kinematics on the solved joint positions
+            # (need one extra mj_forward since the last loop iteration may have
+            # updated qpos without a corresponding mj_forward)
+            mujoco.mj_forward(self._model, scratch)
+            achieved_pos = scratch.xpos[self._ee_id].copy()
+            residual = np.linalg.norm(target_pos - achieved_pos)
+            print(
+                f"  [IK] iters={iters+1}/{self._max_iter}  "
+                f"target=[{target_pos[0]:.4f}, {target_pos[1]:.4f}, {target_pos[2]:.4f}]  "
+                f"achieved=[{achieved_pos[0]:.4f}, {achieved_pos[1]:.4f}, {achieved_pos[2]:.4f}]  "
+                f"residual={residual:.6f}m"
+            )
+
         return ctrl_target
 
     @staticmethod
