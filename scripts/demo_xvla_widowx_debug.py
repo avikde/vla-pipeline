@@ -18,9 +18,12 @@ import torch
 from PIL import Image, ImageDraw
 import sys
 
+import xvla_policy as xvla
+
 # Parse arguments
 parser = argparse.ArgumentParser(description='X-VLA with WidowX Robot - Debug')
 parser.add_argument('--verbose', action='store_true', help='Print detailed action info every step')
+parser.add_argument('--no-vla', action='store_true', help='Skip VLA loading; use reference policy instead')
 args = parser.parse_args()
 
 print("=" * 60)
@@ -34,41 +37,20 @@ for i in range(NUM_MARKERS):
     fade = i / max(1, NUM_MARKERS - 1)
     MARKER_COLORS.append(np.array([fade, 1.0 - fade, 0.0, 0.6], dtype=np.float32))
 
-# Load X-VLA policy
-print("\n[1/7] Loading X-VLA WidowX policy...")
-try:
-    from lerobot.policies.xvla.modeling_xvla import XVLAPolicy
-    from transformers import AutoTokenizer
+# Load X-VLA policy (skipped in --no-vla mode)
+policy = tokenizer = language_tokens = language_attention_mask = None
+device = "cpu"
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"  ✓ Device: {device}")
-
-    # Load WidowX-specific checkpoint
-    policy = XVLAPolicy.from_pretrained("lerobot/xvla-widowx").to(device).eval()
-
-    # Load language tokenizer (X-VLA uses BART)
-    tokenizer = AutoTokenizer.from_pretrained(policy.config.tokenizer_name)
-
-    # ===== DEBUG: Check policy configuration =====
-    print(f"\n  📋 Policy Configuration:")
-    print(f"     - action_mode: {policy.config.action_mode}")
-    print(f"     - chunk_size: {policy.config.chunk_size}")
-    print(f"     - n_action_steps: {policy.config.n_action_steps}")
-    print(f"     - num_denoising_steps: {policy.config.num_denoising_steps}")
-    print(f"     - use_proprio: {policy.config.use_proprio}")
-    print(f"     - max_action_dim: {policy.config.max_action_dim}")
-
-    if policy.config.action_mode != "ee6d":
-        print(f"\n  ⚠️  WARNING: action_mode is '{policy.config.action_mode}', expected 'ee6d'")
-        print(f"     X-VLA WidowX is trained with EE actions, not joint actions!")
-    else:
-        print(f"  ✓ Confirmed: Using EE (end-effector) action mode")
-
-except ImportError as e:
-    print(f"\n❌ X-VLA not installed: {e}")
-    print("\nTo install X-VLA:")
-    print('  pip install "lerobot[xvla]"')
-    sys.exit(1)
+if not args.no_vla:
+    print("\n[1/7] Loading X-VLA WidowX policy...")
+    try:
+        policy, tokenizer, device = xvla.load_policy("lerobot/xvla-widowx")
+    except ImportError as e:
+        print(f"\n❌ X-VLA not installed: {e}")
+        print('  pip install "lerobot[xvla]"')
+        sys.exit(1)
+else:
+    print("\n[1/7] Skipping VLA load (--no-vla). Using reference policy.")
 
 # Load WidowX MuJoCo model
 print("\n[2/7] Loading WidowX MuJoCo model...")
@@ -130,121 +112,19 @@ def render_camera(camera_name, trajectory=None):
             renderer.scene.ngeom += 1
     return renderer.render()
 
-def preprocess_image(rgb_image, device='cpu'):
-    """Preprocess image for VLA input."""
-    img_tensor = torch.from_numpy(rgb_image).permute(2, 0, 1).float() / 255.0
-    return img_tensor.unsqueeze(0).to(device)
-
-def get_ee_pose(model, data):
-    """Get end-effector pose (position + rotation matrix)."""
-    # WidowX end-effector is the "wx250s/gripper_link" body
-    ee_body_id = model.body("wx250s/gripper_link").id
-    ee_pos = data.xpos[ee_body_id].copy()
-    ee_rot = data.xmat[ee_body_id].reshape(3, 3).copy()
-    return ee_pos, ee_rot
-
-def rotation_matrix_to_6d(rot_mat):
-    """Convert 3x3 rotation matrix to 6D representation (first two columns)."""
-    return rot_mat[:, :2].flatten()
-
-def rotation_matrix_to_euler(rot_mat):
-    """Convert 3x3 rotation matrix to roll, pitch, yaw (XYZ Euler angles).
-
-    This matches the BridgeData convention for observation.state.
-    """
-    # Extract pitch from R[2,0]
-    sy = np.sqrt(rot_mat[0, 0]**2 + rot_mat[1, 0]**2)
-    singular = sy < 1e-6
-    if not singular:
-        roll = np.arctan2(rot_mat[2, 1], rot_mat[2, 2])
-        pitch = np.arctan2(-rot_mat[2, 0], sy)
-        yaw = np.arctan2(rot_mat[1, 0], rot_mat[0, 0])
-    else:
-        roll = np.arctan2(-rot_mat[1, 2], rot_mat[1, 1])
-        pitch = np.arctan2(-rot_mat[2, 0], sy)
-        yaw = 0.0
-    return roll, pitch, yaw
-
-def get_ee_state_8d(model, data):
-    """Get the 8D end-effector state matching BridgeData observation.state format.
-
-    Returns: np.array of shape (8,) with [x, y, z, roll, pitch, yaw, pad, gripper]
-
-    BridgeData convention (from IPEC-COMMUNITY/bridge_orig_lerobot):
-      [0] x       - EE position X
-      [1] y       - EE position Y
-      [2] z       - EE position Z
-      [3] roll    - EE rotation roll
-      [4] pitch   - EE rotation pitch
-      [5] yaw     - EE rotation yaw
-      [6] pad     - Always 0
-      [7] gripper - Gripper openness (left_finger joint position)
-    """
-    ee_pos, ee_rot = get_ee_pose(model, data)
-    roll, pitch, yaw = rotation_matrix_to_euler(ee_rot)
-
-    # Gripper state: left_finger joint position
-    gripper_joint_id = model.joint("left_finger").id
-    gripper_pos = data.qpos[gripper_joint_id]
-
-    return np.array([
-        ee_pos[0], ee_pos[1], ee_pos[2],
-        roll, pitch, yaw,
-        0.0,          # pad
-        gripper_pos,  # gripper
-    ], dtype=np.float32)
-
-def get_cube_position(model, data, cube_name="red_block"):
-    """Get position of the target cube."""
-    try:
-        cube_body_id = model.body(cube_name).id
-        return data.xpos[cube_body_id].copy()
-    except:
-        # Try alternative names
-        for alt_name in ["blue_block", "red_box", "cube"]:
-            try:
-                cube_body_id = model.body(alt_name).id
-                return data.xpos[cube_body_id].copy()
-            except:
-                continue
-        return None
-
-def decode_ee6d_action(action_vec):
-    """
-    Decode the 20D EE action vector.
-
-    Based on lerobot action_hub.py:
-    - Indices 0-2, 10-12: XYZ position (duplicate for temporal sequence)
-    - Indices 3-8, 13-18: 6D rotation (duplicate for temporal sequence)
-    - Indices 9, 19: Gripper (duplicate for temporal sequence)
-    """
-    if len(action_vec) < 20:
-        print(f"  ⚠️  Action vector too short: {len(action_vec)}, expected 20")
-        return None, None, None, None
-
-    # Extract first timestep (indices 0-9)
-    xyz_1 = action_vec[0:3]
-    rot6d_1 = action_vec[3:9]
-    gripper_1 = action_vec[9]
-
-    return xyz_1, rot6d_1, gripper_1
 
 # Task instruction
 print("\n[4/7] Setting up task...")
 task_instruction = "Pick up the red block"
 print(f"  Task: '{task_instruction}'")
 
-# Tokenize language instruction once (before the loop)
-tokenized = tokenizer(
-    task_instruction,
-    padding='max_length',
-    max_length=policy.config.tokenizer_max_length,
-    truncation=True,
-    return_tensors='pt'
-)
-language_tokens = tokenized['input_ids'].to(device)
-language_attention_mask = tokenized['attention_mask'].to(device)
-print(f"  ✓ Language tokens: {language_tokens.shape}")
+if policy is not None:
+    language_tokens, language_attention_mask = xvla.tokenize_task(
+        task_instruction, tokenizer, policy.config, device
+    )
+    print(f"  ✓ Language tokens: {language_tokens.shape}")
+else:
+    print(f"  ⚠️  No VLA — language tokens skipped")
 
 # Settle physics
 print("\n[5/7] Settling physics...")
@@ -253,10 +133,9 @@ for _ in range(100):
 print(f"  ✓ Physics settled")
 
 # Get initial state
-initial_ee_pos, initial_ee_rot = get_ee_pose(model, data)
-cube_pos = get_cube_position(model, data)
-
-initial_ee_state = get_ee_state_8d(model, data)
+initial_ee_pos, initial_ee_rot = xvla.get_ee_pose(model, data)
+cube_pos = xvla.get_cube_position(model, data)
+initial_ee_state = xvla.get_ee_state_8d(model, data)
 
 print(f"\n  📍 Initial State:")
 print(f"     - EE position: [{initial_ee_pos[0]:.3f}, {initial_ee_pos[1]:.3f}, {initial_ee_pos[2]:.3f}]")
@@ -299,9 +178,9 @@ log_file = open("xvla_action_debug.log", "w", encoding="utf-8")
 log_file.write("X-VLA Action Debug Log\n")
 log_file.write("=" * 80 + "\n")
 log_file.write(f"Task: {task_instruction}\n")
-log_file.write(f"Action mode: {policy.config.action_mode}\n")
-log_file.write(f"Chunk size: {policy.config.chunk_size}\n")
-log_file.write(f"N action steps: {policy.config.n_action_steps}\n")
+log_file.write(f"Action mode: {policy.config.action_mode if policy else 'reference (no VLA)'}\n")
+log_file.write(f"Chunk size: {policy.config.chunk_size if policy else 'N/A'}\n")
+log_file.write(f"N action steps: {policy.config.n_action_steps if policy else 'N/A'}\n")
 log_file.write(f"Normalization: IDENTITY (no normalization on state or action)\n")
 log_file.write("=" * 80 + "\n\n")
 
@@ -355,55 +234,36 @@ while True:
     img = render_camera('up')
     img2 = render_camera('side')
 
-    # 2. Preprocess for X-VLA
-    img_tensor = preprocess_image(img, device=device)
-    img2_tensor = preprocess_image(img2, device=device)
+    # 2. Build observation and run inference
+    ee_state_8d = xvla.get_ee_state_8d(model, data)
+    cube_pos_now = xvla.get_cube_position(model, data)
 
-    # Get robot state as 8D EE state matching BridgeData format:
-    # [x, y, z, roll, pitch, yaw, pad, gripper]
-    ee_state_8d = get_ee_state_8d(model, data)
+    if policy is not None:
+        observation = xvla.build_observation(
+            img, img2, ee_state_8d, language_tokens, language_attention_mask, device
+        )
+        actions_np = xvla.select_action(policy, observation, device)
 
-    # X-VLA WidowX expects specific observation keys
-    observation = {
-        'observation.images.image': img_tensor,
-        'observation.images.image2': img2_tensor,
-        'observation.state': torch.from_numpy(ee_state_8d).float().unsqueeze(0).to(device),
-        'observation.language.tokens': language_tokens,
-        'observation.language.attention_mask': language_attention_mask,
-    }
-
-    # 3. VLA inference
-    with torch.inference_mode():
-        try:
-            actions = policy.select_action(observation)
-        except Exception as e:
-            print(f"❌ VLA inference error at step {step}: {e}")
-            actions = torch.zeros(20, device=device)  # EE6D is 20-dimensional
-
-    # Snapshot the first 10 actions when a new chunk is generated
-    action_queue = policy._queues.get("action", [])
-    queue_size = len(action_queue)
-    is_new_chunk = queue_size == policy.config.chunk_size - 1  # Just generated new chunk, popped 1
-    if is_new_chunk:
-        cached_action_targets = []
-        for queued_action in list(action_queue)[:NUM_MARKERS]:
-            if isinstance(queued_action, torch.Tensor):
-                cached_action_targets.append(queued_action.flatten()[:3].cpu().numpy())
-            else:
-                cached_action_targets.append(np.array(queued_action).flatten()[:3])
-
-    if device == "cuda":
-        torch.cuda.synchronize()
-
-    # Convert actions to numpy
-    if isinstance(actions, torch.Tensor):
-        actions_np = actions.detach().cpu().numpy().flatten()
+        action_queue = policy._queues.get("action", [])
+        queue_size = len(action_queue)
+        is_new_chunk = queue_size == policy.config.chunk_size - 1
+        if is_new_chunk:
+            cached_action_targets = []
+            for queued_action in list(action_queue)[:NUM_MARKERS]:
+                if isinstance(queued_action, torch.Tensor):
+                    cached_action_targets.append(queued_action.flatten()[:3].cpu().numpy())
+                else:
+                    cached_action_targets.append(np.array(queued_action).flatten()[:3])
     else:
-        actions_np = np.array(actions).flatten()
+        block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
+        actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos)
+        queue_size = 0
+        is_new_chunk = True
+        cached_action_targets = [actions_np[0:3]]  # visualize the single target
 
     # ===== DEBUG: Analyze raw actions =====
-    current_ee_pos, current_ee_rot = get_ee_pose(model, data)
-    cube_pos = get_cube_position(model, data)
+    current_ee_pos, current_ee_rot = xvla.get_ee_pose(model, data)
+    cube_pos = cube_pos_now
 
     log_entry = f"\n{'='*80}\nStep {step}\n{'='*80}\n"
     log_entry += f"Raw action vector (len={len(actions_np)}):\n"
@@ -412,7 +272,7 @@ while True:
 
     # Decode EE actions
     if len(actions_np) >= 20:
-        xyz_1, rot6d_1, gripper_1 = decode_ee6d_action(actions_np)
+        xyz_1, rot6d_1, gripper_1 = xvla.decode_ee6d_action(actions_np)
 
         log_entry += f"Decoded EE Actions (timestep 1) - ABSOLUTE target:\n"
         log_entry += f"  Target XYZ:     {fmt_vec(xyz_1)}\n"
@@ -424,7 +284,7 @@ while True:
 
         log_entry += f"\nCurrent State:\n"
         log_entry += f"  Current EE pos: {fmt_vec(current_ee_pos)}\n"
-        log_entry += f"  Current EE 6D:  {fmt_vec(rotation_matrix_to_6d(current_ee_rot))}\n"
+        log_entry += f"  Current EE 6D:  {fmt_vec(xvla.rotation_matrix_to_6d(current_ee_rot))}\n"
 
         # Direction analysis: xyz_1 is ABSOLUTE target, not delta
         # Delta = target - current
