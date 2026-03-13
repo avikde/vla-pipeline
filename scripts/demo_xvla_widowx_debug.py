@@ -165,7 +165,7 @@ while True:
 
     if policy is not None:
         observation = xvla.build_observation(
-            img, img2, ee_state_8d, language_tokens, language_attention_mask, device
+            img, img2, ee_state_8d, language_tokens, language_attention_mask, device # pyright:ignore
         )
         actions_np = xvla.select_action(policy, observation, device)
 
