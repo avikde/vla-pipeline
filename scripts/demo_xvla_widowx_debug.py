@@ -2,13 +2,8 @@
 """
 X-VLA with WidowX Robot Demo - DEBUG VERSION
 
-Enhanced with detailed debugging for action space issues:
-1. Verifies X-VLA is configured for EE actions (ee6d mode)
-2. Logs raw action vectors (all 20 dimensions)
-3. Extracts and logs EE poses (current and target)
-4. Tracks cube position and checks if actions point toward it
-5. Verifies normalization/unnormalization
-6. Checks control mode (position/velocity/torque)
+Run with --no-vla to skip model loading and use a reference policy instead.
+Run with --verbose to print per-step action/alignment info to stdout.
 """
 
 import argparse
@@ -22,13 +17,9 @@ import xvla_policy as xvla
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='X-VLA with WidowX Robot - Debug')
-parser.add_argument('--verbose', action='store_true', help='Print detailed action info every step')
+parser.add_argument('--verbose', action='store_true', help='Print per-step action/alignment info')
 parser.add_argument('--no-vla', action='store_true', help='Skip VLA loading; use reference policy instead')
 args = parser.parse_args()
-
-print("=" * 60)
-print("X-VLA WidowX Demo - DEBUG MODE")
-print("=" * 60)
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
 NUM_MARKERS = 10
@@ -40,6 +31,10 @@ for i in range(NUM_MARKERS):
 # Load X-VLA policy (skipped in --no-vla mode)
 policy = tokenizer = language_tokens = language_attention_mask = None
 device = "cpu"
+
+print("=" * 60)
+print("X-VLA WidowX Demo - DEBUG MODE")
+print("=" * 60)
 
 if not args.no_vla:
     print("\n[1/7] Loading X-VLA WidowX policy...")
@@ -59,8 +54,6 @@ try:
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
 
-    # Initialize robot joints to home pose (avoids finger collision at qpos=0)
-    # Only set the 8 robot joint qpos, not the freejoint qpos for objects
     home_qpos = model.keyframe('home').qpos
     n_robot_joints = 8  # 6 arm + 2 finger
     data.qpos[:n_robot_joints] = home_qpos[:n_robot_joints]
@@ -68,20 +61,11 @@ try:
     mujoco.mj_forward(model, data)
 
     print(f"  ✓ Model loaded (initialized to 'home' keyframe)")
-    print(f"     - nq (positions): {model.nq}")
-    print(f"     - nv (velocities): {model.nv}")
-    print(f"     - nu (actuators): {model.nu}")
+    print(f"     - nq={model.nq}  nv={model.nv}  nu={model.nu}")
 
-    # Check actuator control mode
     print(f"\n  🎮 Actuator Control Modes:")
     for i in range(model.nu):
-        actuator_name = model.actuator(i).name
-        # dyntype: 0=None, 1=Integrator, 2=Filter, 3=Muscle, 4=User
-        # gaintype: 0=Fixed, 1=Affine, 2=Muscle, 3=User
-        # biastype: 0=None, 1=Affine, 2=Muscle, 3=User
-        ctrl_limited = model.actuator_ctrllimited[i]
-        ctrl_range = model.actuator_ctrlrange[i]
-        print(f"     [{i}] {actuator_name}: range={ctrl_range} limited={ctrl_limited}")
+        print(f"     [{i}] {model.actuator(i).name}: range={model.actuator_ctrlrange[i]} limited={model.actuator_ctrllimited[i]}")
 
 except Exception as e:
     print(f"❌ Error loading WidowX model: {e}")
@@ -133,20 +117,18 @@ for _ in range(100):
 print(f"  ✓ Physics settled")
 
 # Get initial state
-initial_ee_pos, initial_ee_rot = xvla.get_ee_pose(model, data)
+initial_ee_pos, _ = xvla.get_ee_pose(model, data)
 cube_pos = xvla.get_cube_position(model, data)
 initial_ee_state = xvla.get_ee_state_8d(model, data)
 
 print(f"\n  📍 Initial State:")
 print(f"     - EE position: [{initial_ee_pos[0]:.3f}, {initial_ee_pos[1]:.3f}, {initial_ee_pos[2]:.3f}]")
-print(f"     - EE state (8D): {initial_ee_state}")
-print(f"       [x={initial_ee_state[0]:.3f}, y={initial_ee_state[1]:.3f}, z={initial_ee_state[2]:.3f}, "
+print(f"     - EE state (8D): [x={initial_ee_state[0]:.3f}, y={initial_ee_state[1]:.3f}, z={initial_ee_state[2]:.3f}, "
       f"roll={initial_ee_state[3]:.3f}, pitch={initial_ee_state[4]:.3f}, yaw={initial_ee_state[5]:.3f}, "
       f"pad={initial_ee_state[6]:.3f}, gripper={initial_ee_state[7]:.3f}]")
 if cube_pos is not None:
     print(f"     - Cube position: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
-    dist_to_cube = np.linalg.norm(initial_ee_pos - cube_pos)
-    print(f"     - Distance to cube: {dist_to_cube:.3f}m")
+    print(f"     - Distance to cube: {np.linalg.norm(initial_ee_pos - cube_pos):.3f}m")
 
 # Launch viewer
 print("\n[6/7] Launching viewer...")
@@ -156,81 +138,24 @@ viewer.cam.distance = 0.8
 viewer.cam.azimuth = 45
 viewer.cam.elevation = -20
 viewer.cam.lookat[:] = [0.2, 0.0, 0.2]
-print(f"  ✓ Viewer launched (manual control via right panel sliders)")
-print(f"  🎯 Trajectory visualization enabled")
-print(f"  Close the viewer window to stop.")
+print(f"  ✓ Viewer launched  |  --verbose={'on' if args.verbose else 'off'}  |  Close window to stop.")
 
 # Simulation loop
-print("\n[7/7] Running X-VLA inference loop...")
+print("\n[7/7] Running inference loop...")
 print("=" * 60)
 
-# Helper for fixed-width float formatting (no exponents)
 def fmt(v):
-    """Format a single float as fixed-point %.4f."""
     return f"{v:.4f}"
 
 def fmt_vec(v):
-    """Format a numpy array as fixed-point [%.4f, %.4f, ...]."""
     return "[" + ", ".join(f"{x:.4f}" for x in v) + "]"
 
-# Create log file for detailed action analysis
-log_file = open("xvla_action_debug.log", "w", encoding="utf-8")
-log_file.write("X-VLA Action Debug Log\n")
-log_file.write("=" * 80 + "\n")
-log_file.write(f"Task: {task_instruction}\n")
-log_file.write(f"Action mode: {policy.config.action_mode if policy else 'reference (no VLA)'}\n")
-log_file.write(f"Chunk size: {policy.config.chunk_size if policy else 'N/A'}\n")
-log_file.write(f"N action steps: {policy.config.n_action_steps if policy else 'N/A'}\n")
-log_file.write(f"Normalization: IDENTITY (no normalization on state or action)\n")
-log_file.write("=" * 80 + "\n\n")
-
-log_file.write("OBSERVATION STATE (proprio) FORMAT\n")
-log_file.write("-" * 80 + "\n")
-log_file.write("Source: IPEC-COMMUNITY/bridge_orig_lerobot dataset card\n")
-log_file.write("Shape: (8,) -> padded to (20,) internally by pad_vector()\n")
-log_file.write("  [0] x       - EE position X (meters, MuJoCo world frame)\n")
-log_file.write("  [1] y       - EE position Y\n")
-log_file.write("  [2] z       - EE position Z\n")
-log_file.write("  [3] roll    - EE rotation about X (radians)\n")
-log_file.write("  [4] pitch   - EE rotation about Y\n")
-log_file.write("  [5] yaw     - EE rotation about Z\n")
-log_file.write("  [6] pad     - Always 0\n")
-log_file.write("  [7] gripper - Gripper joint position (left_finger qpos)\n")
-log_file.write("Normalization: IDENTITY (raw values passed directly)\n")
-log_file.write("Ref: modeling_xvla.py:298-304 _prepare_state() -> pad_vector(state, 20)\n")
-log_file.write("Ref: configuration_xvla.py max_state_dim=20, use_proprio=True\n")
-log_file.write("\n")
-
-log_file.write("ACTION SPACE FORMAT (ee6d)\n")
-log_file.write("-" * 80 + "\n")
-log_file.write("Source: action_hub.py EE6DActionSpace\n")
-log_file.write("Shape: (20,) = two packed timesteps of 10D each\n")
-log_file.write("  Timestep 1 (indices 0-9):\n")
-log_file.write("    [0:3]  XYZ    - ABSOLUTE target EE position (meters)\n")
-log_file.write("    [3:9]  Rot6D  - ABSOLUTE target EE orientation (6D rotation)\n")
-log_file.write("    [9]    Grip   - Gripper (sigmoid-postprocessed, 0=closed 1=open)\n")
-log_file.write("  Timestep 2 (indices 10-19):\n")
-log_file.write("    [10:13] XYZ   - ABSOLUTE target EE position (next step)\n")
-log_file.write("    [13:19] Rot6D - ABSOLUTE target EE orientation (next step)\n")
-log_file.write("    [19]    Grip  - Gripper (next step)\n")
-log_file.write("Normalization: IDENTITY (raw values from model)\n")
-log_file.write("Postprocess: sigmoid applied to gripper indices (9, 19)\n")
-log_file.write("Loss weights: XYZ_SCALE=500, ROT_SCALE=10, GRIPPER_SCALE=1\n")
-log_file.write("\n")
-
-log_file.write("NOTE: BridgeData raw actions are 7D DELTAS [dx,dy,dz,dr,dp,dy,grip]\n")
-log_file.write("but the ee6d model outputs ABSOLUTE target positions/orientations.\n")
-log_file.write("The XVLARotation6DToAxisAngleProcessorStep converts 20D ee6d output\n")
-log_file.write("to 7D [target_eef(3), axis_angle(3), gripper(1)] for robot execution.\n")
-log_file.write("Ref: processor_xvla.py:471-521\n")
-log_file.write("=" * 80 + "\n\n")
-
 step = 0
-cached_action_targets = []  # First 10 XYZ targets from the most recent VLA chunk
+cached_action_targets = []
 camera_snapshot_saved = False
 
 while True:
-    # 1. Render cameras https://rail-berkeley.github.io/bridgedata/
+    # 1. Render cameras
     img = render_camera('up')
     img2 = render_camera('side')
 
@@ -259,87 +184,47 @@ while True:
         actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos)
         queue_size = 0
         is_new_chunk = True
-        cached_action_targets = [actions_np[0:3]]  # visualize the single target
+        current_xyz = ee_state_8d[0:3]
+        cached_action_targets = [
+            current_xyz + (block_pos - current_xyz) * t
+            for t in np.linspace(0, 1, NUM_MARKERS)
+        ]
 
-    # ===== DEBUG: Analyze raw actions =====
-    current_ee_pos, current_ee_rot = xvla.get_ee_pose(model, data)
-    cube_pos = cube_pos_now
-
-    log_entry = f"\n{'='*80}\nStep {step}\n{'='*80}\n"
-    log_entry += f"Raw action vector (len={len(actions_np)}):\n"
-    log_entry += f"  {fmt_vec(actions_np)}\n\n"
-    log_entry += f"Proprio state (8D): {fmt_vec(ee_state_8d)}\n\n"
-
-    # Decode EE actions
-    if len(actions_np) >= 20:
+    # 3. Per-step debug output (--verbose only)
+    if args.verbose:
+        current_ee_pos, current_ee_rot = xvla.get_ee_pose(model, data)
         xyz_1, rot6d_1, gripper_1 = xvla.decode_ee6d_action(actions_np)
 
-        log_entry += f"Decoded EE Actions (timestep 1) - ABSOLUTE target:\n"
-        log_entry += f"  Target XYZ:     {fmt_vec(xyz_1)}\n"
-        log_entry += f"  Target Rot6D:   {fmt_vec(rot6d_1)}\n"
-        log_entry += f"  Gripper:        {fmt(gripper_1)}\n\n"
-
-        log_entry += f"Temporal Analysis:\n"
-        log_entry += f"  Queue size: {queue_size} {'(NEW CHUNK)' if is_new_chunk else ''}\n"
-
-        log_entry += f"\nCurrent State:\n"
-        log_entry += f"  Current EE pos: {fmt_vec(current_ee_pos)}\n"
-        log_entry += f"  Current EE 6D:  {fmt_vec(xvla.rotation_matrix_to_6d(current_ee_rot))}\n"
-
-        # Direction analysis: xyz_1 is ABSOLUTE target, not delta
-        # Delta = target - current
-        action_delta = xyz_1 - current_ee_pos
-
-        if cube_pos is not None:
-            cube_direction = cube_pos - current_ee_pos
-
-            # Normalize directions for alignment check
-            delta_norm = np.linalg.norm(action_delta)
-            cube_dist = np.linalg.norm(cube_direction)
-            if delta_norm > 1e-8 and cube_dist > 1e-8:
-                alignment = np.dot(
-                    action_delta / delta_norm,
-                    cube_direction / cube_dist,
-                )
-            else:
-                alignment = 0.0
-
-            log_entry += f"  Cube position:  {fmt_vec(cube_pos)}\n"
-            log_entry += f"\nDirection Analysis (xyz_1 is ABSOLUTE target):\n"
-            log_entry += f"  Action delta (target - current): {fmt_vec(action_delta)}\n"
-            log_entry += f"  Cube direction  (cube - current): {fmt_vec(cube_direction)}\n"
-            log_entry += f"  Alignment (dot):  {fmt(alignment)} {'-> toward cube' if alignment > 0.3 else '-> AWAY from cube' if alignment < -0.3 else '-> orthogonal'}\n"
-            log_entry += f"  Delta magnitude:  {fmt(delta_norm)}m\n"
-            log_entry += f"  Distance to cube: {fmt(cube_dist)}m\n"
-            log_entry += f"  Target dist to cube: {fmt(np.linalg.norm(xyz_1 - cube_pos))}m\n"
-    else:
-        log_entry += f"Action vector too short: {len(actions_np)}, expected 20 for EE6D\n"
-
-    log_file.write(log_entry)
-    log_file.flush()
-
-    # Manual control: user controls joints via UI sliders (data.ctrl is set by viewer)
-    # VLA actions are logged but not applied (proper IK/impedance control not yet implemented)
+        print(f"\n--- Step {step} {'(NEW CHUNK) ' if is_new_chunk else ''}queue={queue_size} ---")
+        print(f"  Proprio:    {fmt_vec(ee_state_8d)}")
+        if xyz_1 is not None:
+            print(f"  Target XYZ: {fmt_vec(xyz_1)}  gripper={fmt(gripper_1)}")
+            action_delta = xyz_1 - current_ee_pos
+            if cube_pos_now is not None:
+                cube_dir = cube_pos_now - current_ee_pos
+                dn, cd = np.linalg.norm(action_delta), np.linalg.norm(cube_dir)
+                alignment = np.dot(action_delta / (dn + 1e-8), cube_dir / (cd + 1e-8))
+                label = "toward cube" if alignment > 0.3 else ("AWAY from cube" if alignment < -0.3 else "orthogonal")
+                print(f"  Alignment:  {fmt(alignment)} ({label})  dist_to_cube={fmt(cd)}m")
 
     # 4. Step simulation
     mujoco.mj_step(model, data)
 
-    # 5. Viewer sync and trajectory visualization using mjv_initGeom
+    # 5. Viewer sync + trajectory dots
     viewer.user_scn.ngeom = 0
-    if len(cached_action_targets) > 0:
-        for i, target_xyz in enumerate(cached_action_targets):
-            mujoco.mjv_initGeom(
-                viewer.user_scn.geoms[i],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=[0.01, 0, 0],
-                pos=target_xyz.astype(np.float64),
-                mat=np.eye(3).flatten(),
-                rgba=MARKER_COLORS[i],
-            )
-        viewer.user_scn.ngeom = len(cached_action_targets)
+    for i, target_xyz in enumerate(cached_action_targets):
+        mujoco.mjv_initGeom(
+            viewer.user_scn.geoms[i],
+            type=mujoco.mjtGeom.mjGEOM_SPHERE,
+            size=[0.01, 0, 0],
+            pos=target_xyz.astype(np.float64),
+            mat=np.eye(3).flatten(),
+            rgba=MARKER_COLORS[i],
+        )
+    viewer.user_scn.ngeom = len(cached_action_targets)
 
     # Save camera snapshot once after first trajectory is available
-    if not camera_snapshot_saved and len(cached_action_targets) > 0:
+    if not camera_snapshot_saved and cached_action_targets:
         W, H = VLA_WIDTH, VLA_HEIGHT
         traj = cached_action_targets
         snap_up = render_camera('up', trajectory=traj)
@@ -351,29 +236,15 @@ while True:
         draw.text((W // 2 - 50, 5), 'image (over the shoulder)', fill=(0, 0, 0))
         draw.text((W + 20 + W // 2 - 30, 5), 'image2 (side)', fill=(0, 0, 0))
         combined.save('camera_views.png')
-        print(f"\n  Saved camera snapshot to camera_views.png")
+        print(f"  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True
 
     viewer.sync()
-
     if not viewer.is_running():
         print(f"\nViewer closed at step {step}")
         break
 
     step += 1
 
-print("\n" + "=" * 60)
-print("Demo complete!")
-print("=" * 60)
-print(f"\n📝 Detailed action log saved to: xvla_action_debug.log")
-
-# Cleanup
-log_file.close()
 viewer.close()
-
-print("\n🔍 Debugging Summary:")
-print("  ✓ Verified X-VLA action mode configuration")
-print("  ✓ Logged raw 20D action vectors")
-print("  ✓ Decoded EE positions, rotations, and gripper")
-print("  ✓ Tracked cube position and alignment")
-print("  ⚠️  Still need to implement proper EE→Joint conversion (IK)")
+print("\nDemo complete!")
