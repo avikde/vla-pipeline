@@ -32,11 +32,16 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3 python3-venv python3-pip build-essential git
 ```
 
+Mac
+```sh
+brew install bazel
+```
+
 ### Python dependencies
 
 ```bash
 # Create Python Virtual Environment
-python3 -m venv venv
+python3.13 -m venv venv
 source venv/bin/activate
 
 # Install JAX with CUDA support:
@@ -46,11 +51,8 @@ pip install --upgrade pip
 # Install MuJoCo and MJX (GPU-accelerated physics)
 pip install mujoco # mujoco-mjx
 
-# Install visualization and utilities
-pip install dm_control matplotlib numpy pillow
-
 # For faster model downloads
-pip install huggingface_hub[hf_xet]
+pip install huggingface_hub hf_xet
 
 # Install LeRobot with VLAs
 # pip install "lerobot[smolvla]"
