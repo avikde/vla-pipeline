@@ -8,6 +8,7 @@ Run with --verbose to print per-step action/alignment info to stdout.
 
 import argparse
 import mujoco
+import mujoco.viewer as mj_viewer
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
@@ -60,10 +61,10 @@ try:
     data.ctrl[:] = model.keyframe('home').ctrl
     mujoco.mj_forward(model, data)
 
-    print(f"  ✓ Model loaded (initialized to 'home' keyframe)")
+    print("  ✓ Model loaded (initialized to 'home' keyframe)")
     print(f"     - nq={model.nq}  nv={model.nv}  nu={model.nu}")
 
-    print(f"\n  🎮 Actuator Control Modes:")
+    print("\n  🎮 Actuator Control Modes:")
     for i in range(model.nu):
         print(f"     [{i}] {model.actuator(i).name}: range={model.actuator_ctrlrange[i]} limited={model.actuator_ctrllimited[i]}")
 
@@ -108,20 +109,20 @@ if policy is not None:
     )
     print(f"  ✓ Language tokens: {language_tokens.shape}")
 else:
-    print(f"  ⚠️  No VLA — language tokens skipped")
+    print("  ⚠️  No VLA — language tokens skipped")
 
 # Settle physics
 print("\n[5/7] Settling physics...")
 for _ in range(100):
     mujoco.mj_step(model, data)
-print(f"  ✓ Physics settled")
+print("  ✓ Physics settled")
 
 # Get initial state
 initial_ee_pos, _ = xvla.get_ee_pose(model, data)
 cube_pos = xvla.get_cube_position(model, data)
 initial_ee_state = xvla.get_ee_state_8d(model, data)
 
-print(f"\n  📍 Initial State:")
+print("\n  📍 Initial State:")
 print(f"     - EE position: [{initial_ee_pos[0]:.3f}, {initial_ee_pos[1]:.3f}, {initial_ee_pos[2]:.3f}]")
 print(f"     - EE state (8D): [x={initial_ee_state[0]:.3f}, y={initial_ee_state[1]:.3f}, z={initial_ee_state[2]:.3f}, "
       f"roll={initial_ee_state[3]:.3f}, pitch={initial_ee_state[4]:.3f}, yaw={initial_ee_state[5]:.3f}, "
@@ -132,7 +133,6 @@ if cube_pos is not None:
 
 # Launch viewer
 print("\n[6/7] Launching viewer...")
-import mujoco.viewer as mj_viewer
 viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=True)
 viewer.cam.distance = 0.8
 viewer.cam.azimuth = 45
@@ -236,7 +236,7 @@ while True:
         draw.text((W // 2 - 50, 5), 'image (over the shoulder)', fill=(0, 0, 0))
         draw.text((W + 20 + W // 2 - 30, 5), 'image2 (side)', fill=(0, 0, 0))
         combined.save('camera_views.png')
-        print(f"  Saved camera snapshot → camera_views.png")
+        print("  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True
 
     viewer.sync()
