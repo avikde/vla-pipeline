@@ -129,6 +129,9 @@ if cube_pos is not None:
     print(f"     - Cube position: [{cube_pos[0]:.3f}, {cube_pos[1]:.3f}, {cube_pos[2]:.3f}]")
     print(f"     - Distance to cube: {np.linalg.norm(initial_ee_pos - cube_pos):.3f}m")
 
+# Build controller (allocates scratch MjData + caches IDs once)
+controller = ctrl.WidowXController(model)
+
 # Launch viewer
 print("\n[6/7] Launching viewer...")
 viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=True)
@@ -212,9 +215,9 @@ while True:
 
     # 4. IK + control (skipped in --dry-run mode)
     if not args.dry_run and cached_action_targets:
-        ctrl_target = ctrl.solve_ik(model, data, cached_action_targets)
+        ctrl_target = controller.solve_ik(data.qpos, cached_action_targets)
         if ctrl_target is not None:
-            ctrl.apply_control(data, ctrl_target)
+            controller.apply_control(data.ctrl, ctrl_target)
 
     # Step simulation
     mujoco.mj_step(model, data)
