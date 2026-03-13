@@ -15,11 +15,14 @@ from PIL import Image, ImageDraw
 import sys
 
 import xvla_policy as xvla
+import widowx_control as ctrl
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='X-VLA with WidowX Robot - Debug')
-parser.add_argument('--verbose', action='store_true', help='Print per-step action/alignment info')
-parser.add_argument('--no-vla', action='store_true', help='Skip VLA loading; use reference policy instead')
+parser.add_argument('--verbose', '-v', action='store_true', help='Print per-step action/alignment info')
+parser.add_argument('--no-vla', '-n', action='store_true', help='Skip VLA loading; use reference policy instead')
+parser.add_argument('--dry-run', '-d', action='store_true',
+                    help='Visualize trajectory dots only; skip IK and control application')
 args = parser.parse_args()
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
@@ -207,7 +210,13 @@ while True:
                 label = "toward cube" if alignment > 0.3 else ("AWAY from cube" if alignment < -0.3 else "orthogonal")
                 print(f"  Alignment:  {fmt(alignment)} ({label})  dist_to_cube={fmt(cd)}m")
 
-    # 4. Step simulation
+    # 4. IK + control (skipped in --dry-run mode)
+    if not args.dry_run and cached_action_targets:
+        ctrl_target = ctrl.solve_ik(model, data, cached_action_targets)
+        if ctrl_target is not None:
+            ctrl.apply_control(data, ctrl_target)
+
+    # Step simulation
     mujoco.mj_step(model, data)
 
     # 5. Viewer sync + trajectory dots (xyz only for rendering)
