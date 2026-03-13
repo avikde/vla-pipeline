@@ -60,11 +60,6 @@ try:
     data.qpos[:n_robot_joints] = home_qpos[:n_robot_joints]
     data.ctrl[:] = model.keyframe('home').ctrl
     mujoco.mj_forward(model, data)
-
-    print("  ✓ Model loaded (initialized to 'home' keyframe)")
-    print(f"     - nq={model.nq}  nv={model.nv}  nu={model.nu}")
-
-    print("\n  🎮 Actuator Control Modes:")
     for i in range(model.nu):
         print(f"     [{i}] {model.actuator(i).name}: range={model.actuator_ctrlrange[i]} limited={model.actuator_ctrllimited[i]}")
 
@@ -176,19 +171,24 @@ while True:
             cached_action_targets = []
             for queued_action in list(action_queue)[:NUM_MARKERS]:
                 if isinstance(queued_action, torch.Tensor):
-                    cached_action_targets.append(queued_action.flatten()[:3].cpu().numpy())
+                    cached_action_targets.append(queued_action.flatten()[:10].cpu().numpy())
                 else:
-                    cached_action_targets.append(np.array(queued_action).flatten()[:3])
+                    cached_action_targets.append(np.array(queued_action).flatten()[:10])
     else:
         block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
         actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos)
         queue_size = 0
         is_new_chunk = True
+        # Build NUM_MARKERS full 10D waypoints along the path to the block
         current_xyz = ee_state_8d[0:3]
-        cached_action_targets = [
-            current_xyz + (block_pos - current_xyz) * t
-            for t in np.linspace(0, 1, NUM_MARKERS)
-        ]
+        rot6d = xvla.rotation_matrix_to_6d(xvla.euler_to_rotation_matrix(*ee_state_8d[3:6]))
+        cached_action_targets = []
+        for t in np.linspace(0, 1, NUM_MARKERS):
+            wp = np.zeros(10, dtype=np.float32)
+            wp[0:3] = current_xyz + (block_pos - current_xyz) * t
+            wp[3:9] = rot6d
+            wp[9]   = 0.0 if t > 0.8 else 1.0  # close gripper near block
+            cached_action_targets.append(wp)
 
     # 3. Per-step debug output (--verbose only)
     if args.verbose:
@@ -210,14 +210,14 @@ while True:
     # 4. Step simulation
     mujoco.mj_step(model, data)
 
-    # 5. Viewer sync + trajectory dots
+    # 5. Viewer sync + trajectory dots (xyz only for rendering)
     viewer.user_scn.ngeom = 0
-    for i, target_xyz in enumerate(cached_action_targets):
+    for i, target in enumerate(cached_action_targets):
         mujoco.mjv_initGeom(
             viewer.user_scn.geoms[i],
             type=mujoco.mjtGeom.mjGEOM_SPHERE,
             size=[0.01, 0, 0],
-            pos=target_xyz.astype(np.float64),
+            pos=target[:3].astype(np.float64),
             mat=np.eye(3).flatten(),
             rgba=MARKER_COLORS[i],
         )
@@ -226,7 +226,7 @@ while True:
     # Save camera snapshot once after first trajectory is available
     if not camera_snapshot_saved and cached_action_targets:
         W, H = VLA_WIDTH, VLA_HEIGHT
-        traj = cached_action_targets
+        traj = [t[:3] for t in cached_action_targets]
         snap_up = render_camera('up', trajectory=traj)
         snap_side = render_camera('side', trajectory=traj)
         combined = Image.new('RGB', (W * 2 + 20, H + 30), color=(255, 255, 255))
