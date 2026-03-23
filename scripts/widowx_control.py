@@ -34,6 +34,9 @@ GRIPPER_OPEN  = 0.037  # m
 GRIPPER_CLOSE = 0.015  # m
 
 EE_BODY = "wx250s/gripper_link"
+LEFT_FINGER_BODY  = "wx250s/left_finger_link"
+RIGHT_FINGER_BODY = "wx250s/right_finger_link"
+FINGER_TIP_OFFSET = 0.02  # metres forward along gripper X axis (must match xvla_policy.py)
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +98,17 @@ class WidowXController:
 
         # Cache IDs once
         self._ee_id     = model.body(EE_BODY).id
+        self._lf_id     = model.body(LEFT_FINGER_BODY).id
+        self._rf_id     = model.body(RIGHT_FINGER_BODY).id
         self._jnt_ids   = [model.joint(n).id for n in ARM_JOINTS]
         self._qpos_addrs = [model.jnt_qposadr[j] for j in self._jnt_ids]
         self._dof_addrs  = [model.jnt_dofadr[j]  for j in self._jnt_ids]
+
+    def _ee_pos(self, d) -> np.ndarray:
+        """Compute EE position matching get_ee_pose: finger midpoint + tip offset."""
+        mid = (d.xpos[self._lf_id] + d.xpos[self._rf_id]) / 2.0
+        ee_rot = d.xmat[self._ee_id].reshape(3, 3)
+        return mid + FINGER_TIP_OFFSET * ee_rot[:, 0]
 
     def solve_ik(
         self,
@@ -109,7 +120,7 @@ class WidowXController:
         """Solve IK for one action from the trajectory and return ctrl[0:7].
 
         Args:
-            qpos:              Current generalized positions (used as IK seed).
+            qpos:              Current generalized positions (copied into scratch first).
             action_trajectory: List of 10D ee6d arrays [xyz, rot6d, gripper].
             action_idx:        Which action in the trajectory to target.
             debug:             If True, print FK validation (target vs achieved EE pos).
@@ -133,7 +144,7 @@ class WidowXController:
         for iters in range(self._max_iter):
             mujoco.mj_forward(self._model, scratch)
 
-            pos_err = target_pos - scratch.xpos[self._ee_id]
+            pos_err = target_pos - self._ee_pos(scratch)
             if np.linalg.norm(pos_err) < self._tol:
                 break
 
@@ -166,7 +177,8 @@ class WidowXController:
                 err = pos_err
 
             m = J.shape[0]
-            dq = J.T @ np.linalg.solve(J @ J.T + self._damping * np.eye(m), err)
+            Jpinv = J.T @ np.linalg.solve(J @ J.T + self._damping * np.eye(m), np.eye(m))
+            dq = Jpinv @ err
 
             for i, addr in enumerate(self._qpos_addrs):
                 scratch.qpos[addr] += dq[i]
@@ -186,7 +198,7 @@ class WidowXController:
             # (need one extra mj_forward since the last loop iteration may have
             # updated qpos without a corresponding mj_forward)
             mujoco.mj_forward(self._model, scratch)
-            achieved_pos = scratch.xpos[self._ee_id].copy()
+            achieved_pos = self._ee_pos(scratch).copy()
             residual = np.linalg.norm(target_pos - achieved_pos)
             print(
                 f"  [IK] iters={iters+1}/{self._max_iter}  "
