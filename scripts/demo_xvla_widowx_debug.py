@@ -149,6 +149,9 @@ if cube_pos is not None:
 # causes wrist_rotate to spin through singularities. Position-only IK is sufficient
 # for validating reach behaviour.
 controller = ctrl.WidowXController(model, use_orientation=False)
+# Home arm joints used as fixed null-space reference to prevent IK from drifting
+# into a drooped configuration branch.
+home_null_ref = model.keyframe('home').ctrl[:6].copy()
 
 # Launch viewer
 print("\n[6/7] Launching viewer...")
