@@ -29,6 +29,8 @@ parser.add_argument('--step-size', type=float, default=0.02,
                     help='EE step size per timestep for reference policy (m). Default=0.02')
 parser.add_argument('--kp', type=float, default=None,
                     help='Override arm joint position gain kp (default: model value ~50)')
+parser.add_argument('--up', action='store_true',
+                    help='Reference policy: target 0.2m above initial EE (ignore cube); tests IK/control in isolation')
 args = parser.parse_args()
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
@@ -147,6 +149,9 @@ if cube_pos is not None:
 # causes wrist_rotate to spin through singularities. Position-only IK is sufficient
 # for validating reach behaviour.
 controller = ctrl.WidowXController(model, use_orientation=False)
+# Home arm joints used as fixed null-space reference to prevent IK from drifting
+# into a drooped configuration branch.
+home_null_ref = model.keyframe('home').ctrl[:6].copy()
 
 # Launch viewer
 print("\n[6/7] Launching viewer...")
@@ -177,6 +182,7 @@ while True:
     img2 = render_camera('side')
 
     # 2. Build observation and run inference
+    actions_np = None
     ee_state_8d = xvla.get_ee_state_8d(model, data)
     cube_pos_now = xvla.get_cube_position(model, data)
 
@@ -197,27 +203,31 @@ while True:
                 else:
                     cached_action_targets.append(np.array(queued_action).flatten()[:10])
     else:
-        block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
-        actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos, step_size=args.step_size)
         queue_size = 0
         is_new_chunk = True
-        # Build NUM_MARKERS full 10D waypoints along the path to the block.
-        # Start at t=1/NUM_MARKERS so cached_action_targets[0] is one step ahead,
-        # not the current position.
         current_xyz = ee_state_8d[0:3]
         rot6d = xvla.rotation_matrix_to_6d(xvla.euler_to_rotation_matrix(*ee_state_8d[3:6]))
+        if args.up:
+            # Fixed target 0.2m above initial EE; ignores cube and current orientation drift.
+            goal_xyz = initial_ee_pos + np.array([0.0, 0.0, 0.2])
+            goal_rot6d = xvla.rotation_matrix_to_6d(np.eye(3))
+        else:
+            block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
+            actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos, step_size=args.step_size)
+            goal_xyz = block_pos
+            goal_rot6d = rot6d
         cached_action_targets = []
         for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
             wp = np.zeros(10, dtype=np.float32)
-            wp[0:3] = current_xyz + (block_pos - current_xyz) * t
-            wp[3:9] = rot6d
-            wp[9]   = 0.0 if t > 0.8 else 1.0  # close gripper near block
+            wp[0:3] = current_xyz + (goal_xyz - current_xyz) * t
+            wp[3:9] = goal_rot6d
+            wp[9]   = 1.0  # gripper open
             cached_action_targets.append(wp)
 
     # 3. Per-step debug output (--verbose only)
     if args.verbose:
         current_ee_pos, current_ee_rot = xvla.get_ee_pose(model, data)
-        xyz_1, rot6d_1, gripper_1 = xvla.decode_ee6d_action(actions_np)
+        xyz_1, rot6d_1, gripper_1 = xvla.decode_ee6d_action(actions_np) if actions_np is not None else (None, None, 0.0)
 
         print(f"\n--- Step {step} {'(NEW CHUNK) ' if is_new_chunk else ''}queue={queue_size} ---")
         print(f"  Proprio:    {fmt_vec(ee_state_8d)}")
@@ -232,13 +242,27 @@ while True:
                 print(f"  Alignment:  {fmt(alignment)} ({label})  dist_to_cube={fmt(cd)}m")
 
     # 4. IK + control (skipped in --dry-run mode)
+    ik_target_pos = None
     if not args.dry_run and cached_action_targets:
-        ctrl_target = controller.solve_ik(data.qpos, cached_action_targets, debug=args.verbose)
+        ik_target_pos = cached_action_targets[0][:3].copy()
+        ctrl_target = controller.solve_ik(data.qpos, cached_action_targets, debug=args.verbose, ctrl_seed=data.ctrl[:6], null_ref=home_null_ref)
         if ctrl_target is not None:
             controller.apply_control(data.ctrl, ctrl_target)
+            if args.verbose:
+                print(f"  ctrl_target: joints={fmt_vec(ctrl_target[:6])}  gripper={fmt(ctrl_target[6])}")
+                print(f"  data.ctrl:   joints={fmt_vec(data.ctrl[:6])}  gripper={fmt(data.ctrl[6])}")
+                print(f"  qpos vs ctrl: {fmt_vec(data.qpos[:6] - data.ctrl[:6])}")
 
     # Step simulation
     mujoco.mj_step(model, data)
+
+    # Post-step: compare actual EE vs IK target to diagnose servo tracking
+    if args.verbose and ik_target_pos is not None:
+        actual_ee_pos, _ = xvla.get_ee_pose(model, data)
+        servo_err = np.linalg.norm(actual_ee_pos - ik_target_pos)
+        print(f"  Post-step EE: {fmt_vec(actual_ee_pos)}  (target: {fmt_vec(ik_target_pos)})  servo_err={fmt(servo_err)}m")
+        print(f"  qpos:  {fmt_vec(data.qpos[:6])}")
+        print(f"  ctrl:  {fmt_vec(data.ctrl[:6])}")
 
     # 5. Viewer sync + trajectory dots (xyz only for rendering)
     viewer.user_scn.ngeom = 0
