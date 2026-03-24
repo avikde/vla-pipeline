@@ -27,6 +27,8 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 ```
 
+On Windows, use `python` and not `python3`. On Mac, use `mjpython`.
+
 ## Running Scripts
 
 ```bash

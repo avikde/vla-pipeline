@@ -86,15 +86,18 @@ except Exception as e:
     sys.exit(1)
 
 # Setup renderer
+# BridgeData captures at 640x480 (4:3) then squishes to 256x256.
+# Render at 4:3 and resize to match that distortion.
 print("\n[3/7] Setting up renderer...")
 VLA_WIDTH, VLA_HEIGHT = 256, 256
-model.vis.global_.offwidth = max(model.vis.global_.offwidth, VLA_WIDTH)
-model.vis.global_.offheight = max(model.vis.global_.offheight, VLA_HEIGHT)
-renderer = mujoco.Renderer(model, height=VLA_HEIGHT, width=VLA_WIDTH)
-print(f"  ✓ Renderer ready ({VLA_WIDTH}x{VLA_HEIGHT})")
+RENDER_WIDTH, RENDER_HEIGHT = 342, 256  # ~4:3 (640/480 ≈ 1.333)
+model.vis.global_.offwidth = max(model.vis.global_.offwidth, RENDER_WIDTH)
+model.vis.global_.offheight = max(model.vis.global_.offheight, RENDER_HEIGHT)
+renderer = mujoco.Renderer(model, height=RENDER_HEIGHT, width=RENDER_WIDTH)
+print(f"  ✓ Renderer ready ({RENDER_WIDTH}x{RENDER_HEIGHT} → {VLA_WIDTH}x{VLA_HEIGHT})")
 
 def render_camera(camera_name, trajectory=None):
-    """Render from a specific camera, optionally with trajectory spheres."""
+    """Render at 4:3 then squish to 256x256 to match BridgeData distortion."""
     camera_id = model.camera(camera_name).id
     renderer.update_scene(data, camera=camera_id)
     if trajectory:
@@ -108,7 +111,8 @@ def render_camera(camera_name, trajectory=None):
                 rgba=MARKER_COLORS[i],
             )
             renderer.scene.ngeom += 1
-    return renderer.render()
+    raw = renderer.render()
+    return np.array(Image.fromarray(raw).resize((VLA_WIDTH, VLA_HEIGHT)))
 
 
 # Task instruction
