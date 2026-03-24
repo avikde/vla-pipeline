@@ -146,7 +146,7 @@ detected_block_pos = None
 if args.planner == 'gemini-er':
     print("\n[5.5/7] Running Gemini ER detection...")
     detection_img = render_camera('primary')
-    pixel_xy = gemini_er.detect_block_pixel(detection_img)
+    pixel_xy = gemini_er.detect_block_pixel(detection_img, task=task_instruction)
     if pixel_xy is None:
         print("  ❌ Gemini ER detection failed, falling back to ground truth")
     else:
@@ -197,6 +197,11 @@ else:
     viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
     viewer.cam.fixedcamid = model.camera('primary').id
 print(f"  ✓ Viewer launched  |  --verbose={'on' if args.verbose else 'off'}  |  Close window to stop.")
+
+# Show calibration markers for Gemini ER (cyan=projected, yellow=ground truth)
+if detected_block_pos is not None:
+    gt = xvla.get_cube_position(model, data)
+    gemini_er.visualize_projection(viewer, detected_block_pos, gt)
 
 # Simulation loop
 print("\n[7/7] Running inference loop...")
@@ -318,17 +323,21 @@ while True:
         print(f"  ctrl:  {fmt_vec(data.ctrl[:6])}")
 
     # 5. Viewer sync + trajectory dots (xyz only for rendering)
-    viewer.user_scn.ngeom = 0
+    #    Re-draw calibration markers first (if any), then trajectory dots after.
+    geom_idx = 0
+    if detected_block_pos is not None:
+        gemini_er.visualize_projection(viewer, detected_block_pos, xvla.get_cube_position(model, data))
+        geom_idx = viewer.user_scn.ngeom
     for i, target in enumerate(cached_action_targets):
         mujoco.mjv_initGeom(
-            viewer.user_scn.geoms[i],
+            viewer.user_scn.geoms[geom_idx + i],
             type=mujoco.mjtGeom.mjGEOM_SPHERE,
             size=[0.01, 0, 0],
             pos=target[:3].astype(np.float64),
             mat=np.eye(3).flatten(),
             rgba=MARKER_COLORS[i],
         )
-    viewer.user_scn.ngeom = len(cached_action_targets)
+    viewer.user_scn.ngeom = geom_idx + len(cached_action_targets)
 
     # Save camera snapshot once after first trajectory is available
     if not camera_snapshot_saved and cached_action_targets:

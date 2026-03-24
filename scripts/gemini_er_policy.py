@@ -4,6 +4,7 @@ import io
 import json
 import re
 
+import mujoco
 import numpy as np
 from google import genai
 from google.genai import types
@@ -11,30 +12,27 @@ from PIL import Image
 
 
 def detect_block_pixel(
-    image_rgb: np.ndarray, label: str = "red block"
+    image_rgb: np.ndarray, task: str = "Pick up the red block"
 ) -> tuple[float, float] | None:
-    """Send image to Gemini ER, return (x_px, y_px) in image coords for the best-matching label."""
+    """Send image to Gemini ER, return (x_px, y_px) for the task's target object."""
     h, w = image_rgb.shape[:2]
 
-    prompt = """
-        Point to no more than 10 items in the image. The label returned
-        should be an identifying name for the object detected.
-        The answer should follow the json format: [{"point": <point>,
-        "label": <label1>}, ...]. The points are in [y, x] format
-        normalized to 0-1000.
-    """
+    prompt = f"""You are looking at a robot workspace. The task is: "{task}"
+Point to the object referenced in the task.
+Return JSON: {{"point": [y, x]}} with coordinates normalized to 0-1000."""
+
     client = genai.Client()
 
-    # Encode as PNG bytes
+    # Encode as JPEG (faster than PNG, fine for detection)
     img_pil = Image.fromarray(image_rgb)
     buf = io.BytesIO()
-    img_pil.save(buf, format="PNG")
+    img_pil.save(buf, format="JPEG")
     image_bytes = buf.getvalue()
 
     response = client.models.generate_content(
         model="gemini-robotics-er-1.5-preview",
         contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
             prompt,
         ],
         config=types.GenerateContentConfig(
@@ -47,27 +45,16 @@ def detect_block_pixel(
     raw = response.text.strip()
     print(f"  Gemini ER raw response: {raw}")
     json_match = re.search(r"```json?\s*(.*?)\s*```", raw, re.DOTALL)
-    detections = json.loads(json_match.group(1) if json_match else raw)
+    result = json.loads(json_match.group(1) if json_match else raw)
 
-    # Find best matching label (case-insensitive substring match)
-    label_lower = label.lower()
-    best = None
-    for det in detections:
-        det_label = det["label"].lower()
-        if label_lower in det_label or det_label in label_lower:
-            best = det
-            break
-    if best is None and detections:
-        print(f"  ⚠️  No detection matched '{label}', using first: '{detections[0]['label']}'")
-        best = detections[0]
-    if best is None:
-        print(f"  ❌ No detections returned by Gemini ER")
+    if "point" not in result:
+        print(f"  ❌ No 'point' in Gemini ER response")
         return None
 
-    y_norm, x_norm = best["point"]
+    y_norm, x_norm = result["point"]
     x_px = x_norm / 1000 * w
     y_px = y_norm / 1000 * h
-    print(f"  Gemini ER detected '{best['label']}' at pixel ({x_px:.1f}, {y_px:.1f})")
+    print(f"  Gemini ER detected target at pixel ({x_px:.1f}, {y_px:.1f})")
     return (x_px, y_px)
 
 
@@ -134,3 +121,36 @@ def pixel_to_world_3d(
     world_point = cam_pos + t * d_world
 
     return world_point
+
+
+def visualize_projection(viewer, world_point: np.ndarray, ground_truth: np.ndarray | None = None):
+    """Draw marker spheres in the viewer to verify pixel_to_world_3d calibration.
+
+    Places a cyan sphere at the projected point. If ground_truth is provided,
+    also places a yellow sphere there so you can compare visually.
+    """
+    idx = 0
+    # Projected point — cyan
+    mujoco.mjv_initGeom(
+        viewer.user_scn.geoms[idx],
+        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+        size=[0.015, 0, 0],
+        pos=world_point.astype(np.float64),
+        mat=np.eye(3).flatten(),
+        rgba=np.array([0.0, 1.0, 1.0, 0.8], dtype=np.float32),
+    )
+    idx += 1
+
+    # Ground truth — yellow
+    if ground_truth is not None:
+        mujoco.mjv_initGeom(
+            viewer.user_scn.geoms[idx],
+            type=mujoco.mjtGeom.mjGEOM_SPHERE,
+            size=[0.015, 0, 0],
+            pos=ground_truth.astype(np.float64),
+            mat=np.eye(3).flatten(),
+            rgba=np.array([1.0, 1.0, 0.0, 0.8], dtype=np.float32),
+        )
+        idx += 1
+
+    viewer.user_scn.ngeom = idx
