@@ -31,6 +31,8 @@ parser.add_argument('--kp', type=float, default=None,
                     help='Override arm joint position gain kp (default: model value ~50)')
 parser.add_argument('--up', action='store_true',
                     help='Reference policy: target 0.2m above initial EE (ignore cube); tests IK/control in isolation')
+parser.add_argument('-f', '--free-cam', action='store_true',
+                    help='Use free orbit camera instead of locking to the primary camera')
 args = parser.parse_args()
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
@@ -160,10 +162,14 @@ home_null_ref = model.keyframe('home').ctrl[:6].copy()
 # Launch viewer
 print("\n[6/7] Launching viewer...")
 viewer = mj_viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=args.dry_run)
-viewer.cam.distance = 0.8
-viewer.cam.azimuth = 45
-viewer.cam.elevation = -20
-viewer.cam.lookat[:] = [0.2, 0.0, 0.2]
+if args.free_cam:
+    viewer.cam.distance = 0.8
+    viewer.cam.azimuth = 45
+    viewer.cam.elevation = -20
+    viewer.cam.lookat[:] = [0.2, 0.0, 0.2]
+else:
+    viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+    viewer.cam.fixedcamid = model.camera('primary').id
 print(f"  ✓ Viewer launched  |  --verbose={'on' if args.verbose else 'off'}  |  Close window to stop.")
 
 # Simulation loop

@@ -39,6 +39,7 @@ python scripts/demo_xvla_widowx_debug.py
 # --no-vla              Use reference policy instead of X-VLA
 # -v / --verbose        Per-step debug output
 # -d / --dry-run        Visualize trajectory without running IK/control
+# -f / --free-cam       Free orbit camera (default: locked to primary camera)
 # --step-size 0.005     Reference policy movement speed (m/step)
 # --kp 10               Override proportional gain for arm actuators
 ```
@@ -48,7 +49,7 @@ No test suite or linter configured. Pyright is set up for type checking (standar
 ## Architecture
 
 **Inference loop** (`demo_xvla_widowx_debug.py`):
-1. Render two 256×256 camera views from MuJoCo (`up` over-shoulder, `side`)
+1. Render `primary` camera at 4:3 (342×256), squish to 256×256 to match BridgeData distortion; second image is black (BridgeData's cam2 is often black)
 2. Pack images + 8D proprioceptive state (XYZ, RPY, pad, gripper) + language tokens into observation
 3. Run X-VLA → 20D action vector (2 timesteps × 10D)
 4. Decode each 10D slice: XYZ target + 6D rotation + gripper value
@@ -60,7 +61,7 @@ No test suite or linter configured. Pyright is set up for type checking (standar
 **Key modules:**
 - `scripts/xvla_policy.py` — policy loading, observation building, action decoding, MuJoCo utilities (EE pose, cube position). Also contains `generate_non_vla_reference()` fallback reach-and-grasp policy.
 - `scripts/widowx_control.py` — `WidowXController` class: damped least-squares Jacobian IK, 6-DOF or position-only mode, gripper mapping, joint limit enforcement.
-- `assets/widowx/` — MuJoCo XML models; `widowx_vision_scene.xml` is the primary scene used in demos (includes two cameras).
+- `assets/widowx/` — MuJoCo XML models; `widowx_vision_scene.xml` is the primary scene (wooden table, `primary` camera, `third_person` debug camera).
 
 **Action representation (EE6D):** 10D per timestep = [x, y, z, r1x, r1y, r1z, r2x, r2y, r2z, gripper]. The 6D rotation uses two columns of the rotation matrix (third reconstructed via cross product).
 
