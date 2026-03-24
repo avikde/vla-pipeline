@@ -140,26 +140,25 @@ for _ in range(100):
     mujoco.mj_step(model, data)
 print("  ✓ Physics settled")
 
-# Gemini ER detection (once, before main loop)
-detected_block_pos = None
+# Gemini ER plan (once, before main loop)
+waypoint_queue: list[tuple[np.ndarray, float]] = []
+waypoint_idx = 0
 if args.planner == 'gemini-er':
-    print("\n[5.5/7] Running Gemini ER detection...")
+    print("\n[5.5/7] Running Gemini ER detect + plan...")
     detection_img = render_camera('primary')
-    pixel_xy = gemini_er.detect_block_pixel(detection_img, task=task_instruction)
-    if pixel_xy is None:
-        print("  ❌ Gemini ER detection failed, falling back to ground truth")
-    else:
-        detected_block_pos = gemini_er.pixel_to_world_3d(
-            pixel_xy, model, data, 'primary',
-            render_size=(RENDER_WIDTH, RENDER_HEIGHT),
-            vla_size=(VLA_WIDTH, VLA_HEIGHT),
-        )
-        gt = xvla.get_cube_position(model, data)
-        print(f"  Detected 3D position: [{detected_block_pos[0]:.3f}, {detected_block_pos[1]:.3f}, {detected_block_pos[2]:.3f}]")
-        if gt is not None:
-            err = np.linalg.norm(detected_block_pos - gt)
-            print(f"  Ground truth:         [{gt[0]:.3f}, {gt[1]:.3f}, {gt[2]:.3f}]")
-            print(f"  Detection error:      {err:.3f}m")
+    plan_steps = gemini_er.detect_and_plan(
+        detection_img, model, data, 'primary',
+        render_size=(RENDER_WIDTH, RENDER_HEIGHT),
+        vla_size=(VLA_WIDTH, VLA_HEIGHT),
+    )
+    waypoint_queue = gemini_er.plan_to_waypoints(
+        plan_steps, model, data, 'primary',
+        render_size=(RENDER_WIDTH, RENDER_HEIGHT),
+        vla_size=(VLA_WIDTH, VLA_HEIGHT),
+    )
+    print(f"  Generated {len(waypoint_queue)} waypoints:")
+    for i, (wp_xyz, wp_grip) in enumerate(waypoint_queue):
+        print(f"    [{i}] xyz=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}]  gripper={wp_grip:.1f}")
 
 # Get initial state
 initial_ee_pos, _ = xvla.get_ee_pose(model, data)
@@ -197,10 +196,9 @@ else:
     viewer.cam.fixedcamid = model.camera('primary').id
 print(f"  ✓ Viewer launched  |  --verbose={'on' if args.verbose else 'off'}  |  Close window to stop.")
 
-# Show calibration markers for Gemini ER (cyan=projected, yellow=ground truth)
-if detected_block_pos is not None:
-    gt = xvla.get_cube_position(model, data)
-    gemini_er.visualize_projection(viewer, detected_block_pos, gt)
+# Show waypoint markers for Gemini ER plan
+if waypoint_queue and gemini_er is not None:
+    gemini_er.visualize_waypoints(viewer, waypoint_queue)
 
 # Simulation loop
 print("\n[7/7] Running inference loop...")
@@ -250,26 +248,47 @@ while True:
         is_new_chunk = True
         current_xyz = ee_state_8d[0:3]
         rot6d = xvla.rotation_matrix_to_6d(xvla.euler_to_rotation_matrix(*ee_state_8d[3:6]))
+
         if args.up:
             # Fixed target 0.2m above initial EE; ignores cube and current orientation drift.
             goal_xyz = initial_ee_pos + np.array([0.0, 0.0, 0.2])
             goal_rot6d = xvla.rotation_matrix_to_6d(np.eye(3))
+            goal_gripper = 1.0
+        elif waypoint_queue and waypoint_idx < len(waypoint_queue):
+            # Gemini ER waypoint sequencing
+            wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
+            dist_to_wp = np.linalg.norm(current_xyz - wp_xyz)
+            WAYPOINT_THRESHOLD = 0.02  # 2cm
+            if dist_to_wp < WAYPOINT_THRESHOLD and waypoint_idx < len(waypoint_queue) - 1:
+                waypoint_idx += 1
+                wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
+                if args.verbose:
+                    print(f"  ✓ Reached waypoint {waypoint_idx - 1}, advancing to {waypoint_idx}")
+            goal_xyz = wp_xyz
+            goal_rot6d = rot6d
+            goal_gripper = wp_grip
         else:
-            if detected_block_pos is not None:
-                block_pos = detected_block_pos
-            elif cube_pos_now is not None:
-                block_pos = cube_pos_now
-            else:
-                block_pos = np.zeros(3)
-            actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos, step_size=args.step_size)
+            # Hardcoded: use ground-truth block position
+            block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
             goal_xyz = block_pos
             goal_rot6d = rot6d
+            goal_gripper = 1.0
+
+        # Generate action toward goal
+        actions_np = xvla.generate_non_vla_reference(
+            ee_state_8d, [img, img2], goal_xyz, step_size=args.step_size
+        )
+        # Override gripper in the action
+        if actions_np is not None:
+            actions_np[9] = goal_gripper
+            actions_np[19] = goal_gripper
+
         cached_action_targets = []
         for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
             wp = np.zeros(10, dtype=np.float32)
             wp[0:3] = current_xyz + (goal_xyz - current_xyz) * t
             wp[3:9] = goal_rot6d
-            wp[9]   = 1.0  # gripper open
+            wp[9]   = goal_gripper
             cached_action_targets.append(wp)
 
     # 3. Per-step debug output (--verbose only)
@@ -322,10 +341,10 @@ while True:
         print(f"  ctrl:  {fmt_vec(data.ctrl[:6])}")
 
     # 5. Viewer sync + trajectory dots (xyz only for rendering)
-    #    Re-draw calibration markers first (if any), then trajectory dots after.
+    #    Re-draw waypoint markers first (if any), then trajectory dots after.
     geom_idx = 0
-    if detected_block_pos is not None:
-        gemini_er.visualize_projection(viewer, detected_block_pos, xvla.get_cube_position(model, data))
+    if waypoint_queue and gemini_er is not None:
+        gemini_er.visualize_waypoints(viewer, waypoint_queue, current_idx=waypoint_idx)
         geom_idx = viewer.user_scn.ngeom
     for i, target in enumerate(cached_action_targets):
         mujoco.mjv_initGeom(
