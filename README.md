@@ -50,11 +50,11 @@ python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 ## Running
 
 ```bash
-# Main VLA inference demo (opens MuJoCo viewer)
-python scripts/demo_xvla_widowx_debug.py
+# Main demo (opens MuJoCo viewer)
+python scripts/demo_widowx.py
 
 # Flags:
-# --no-vla              Use reference policy instead of X-VLA
+# -p / --planner        Action source: xvla (default), hardcoded, gemini-er
 # -v / --verbose        Per-step debug output
 # -d / --dry-run        Visualize trajectory without running IK/control
 # -f / --free-cam       Free orbit camera (default: locked to primary camera)
@@ -64,7 +64,7 @@ python scripts/demo_xvla_widowx_debug.py
 
 ## Architecture
 
-**Inference loop** (`demo_xvla_widowx_debug.py`):
+**Inference loop** (`demo_widowx.py`):
 1. Render `primary` camera at 4:3 (342×256), squish to 256×256 to match BridgeData distortion; second image is black (BridgeData's cam2 is often black)
 2. Pack images + 8D proprioceptive state (XYZ, RPY, pad, gripper) + language tokens into observation
 3. Run X-VLA → 20D action vector (2 timesteps × 10D)
@@ -77,6 +77,7 @@ python scripts/demo_xvla_widowx_debug.py
 **Key modules:**
 - `scripts/xvla_policy.py` — policy loading, observation building, action decoding, MuJoCo utilities (EE pose, cube position). Also contains `generate_non_vla_reference()` fallback reach-and-grasp policy.
 - `scripts/widowx_control.py` — `WidowXController` class: damped least-squares Jacobian IK, 6-DOF or position-only mode, gripper mapping, joint limit enforcement.
+- `scripts/gemini_er_policy.py` — Gemini ER object detection + MuJoCo camera calibration (pixel→3D via ray-plane intersection).
 - `assets/widowx/` — MuJoCo XML models; `widowx_vision_scene.xml` is the primary scene (wooden table, `primary` camera, `third_person` debug camera).
 
 **Action representation (EE6D):** 10D per timestep = [x, y, z, r1x, r1y, r1z, r2x, r2y, r2z, gripper]. The 6D rotation uses two columns of the rotation matrix (third reconstructed via cross product).
@@ -90,6 +91,8 @@ pip install google-genai
 ```
 
 Get an API key and set the `GEMINI_API_KEY` environment variable as described https://ai.google.dev/gemini-api/docs/api-key.
+
+Use `-p gemini-er` to detect the block via Gemini ER vision, project to 3D, and execute a reach-and-grasp trajectory.
 
 ## Acknowledgements
 

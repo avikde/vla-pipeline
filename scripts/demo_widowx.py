@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """
-X-VLA with WidowX Robot Demo - DEBUG VERSION
+WidowX Robot Demo
 
-Run with --no-vla to skip model loading and use a reference policy instead.
-Run with --verbose to print per-step action/alignment info to stdout.
-Run with --step-size 0.005 to slow the reference policy.
-Run with --kp 10 to lower arm position control gains.
+Uses -p/--planner to select the action source:
+  xvla       Load X-VLA model for end-to-end inference (default)
+  hardcoded  Reach-and-grasp using ground-truth block position
+  gemini-er  Detect block via Gemini ER, project to 3D, then reach-and-grasp
 """
 
 import argparse
+import sys
+
 import mujoco
 import mujoco.viewer as mj_viewer
 import numpy as np
 import torch
 from PIL import Image
-import sys
 
-import xvla_policy as xvla
 import widowx_control as ctrl
 
 # Parse arguments
-parser = argparse.ArgumentParser(description='X-VLA with WidowX Robot - Debug')
+parser = argparse.ArgumentParser(description='WidowX Robot Demo')
 parser.add_argument('--verbose', '-v', action='store_true', help='Print per-step action/alignment info')
-parser.add_argument('--no-vla', '-n', action='store_true', help='Skip VLA loading; use reference policy instead')
+parser.add_argument('-p', '--planner', choices=['xvla', 'hardcoded', 'gemini-er'],
+                    default='xvla', help='Action source: xvla (default), hardcoded, or gemini-er')
 parser.add_argument('--dry-run', '-d', action='store_true',
                     help='Visualize trajectory dots only; skip IK and control application')
 parser.add_argument('--step-size', type=float, default=0.02,
@@ -42,15 +43,16 @@ for i in range(NUM_MARKERS):
     fade = i / max(1, NUM_MARKERS - 1)
     MARKER_COLORS.append(np.array([fade, 1.0 - fade, 0.0, 0.6], dtype=np.float32))
 
-# Load X-VLA policy (skipped in --no-vla mode)
+# Load policy + planner-specific imports
 policy = tokenizer = language_tokens = language_attention_mask = None
 device = "cpu"
 
 print("=" * 60)
-print("X-VLA WidowX Demo - DEBUG MODE")
+print(f"WidowX Demo — planner: {args.planner}")
 print("=" * 60)
 
-if not args.no_vla:
+if args.planner == 'xvla':
+    import xvla_policy as xvla
     print("\n[1/7] Loading X-VLA WidowX policy...")
     try:
         policy, tokenizer, device = xvla.load_policy("lerobot/xvla-widowx")
@@ -59,7 +61,10 @@ if not args.no_vla:
         print('  pip install "lerobot[xvla]"')
         sys.exit(1)
 else:
-    print("\n[1/7] Skipping VLA load (--no-vla). Using reference policy.")
+    import xvla_policy as xvla
+    if args.planner == 'gemini-er':
+        import gemini_er_policy as gemini_er
+    print(f"\n[1/7] Skipping VLA load (planner={args.planner}).")
 
 # Load WidowX MuJoCo model
 print("\n[2/7] Loading WidowX MuJoCo model...")
@@ -135,6 +140,27 @@ print("\n[5/7] Settling physics...")
 for _ in range(100):
     mujoco.mj_step(model, data)
 print("  ✓ Physics settled")
+
+# Gemini ER detection (once, before main loop)
+detected_block_pos = None
+if args.planner == 'gemini-er':
+    print("\n[5.5/7] Running Gemini ER detection...")
+    detection_img = render_camera('primary')
+    pixel_xy = gemini_er.detect_block_pixel(detection_img)
+    if pixel_xy is None:
+        print("  ❌ Gemini ER detection failed, falling back to ground truth")
+    else:
+        detected_block_pos = gemini_er.pixel_to_world_3d(
+            pixel_xy, model, data, 'primary',
+            render_size=(RENDER_WIDTH, RENDER_HEIGHT),
+            vla_size=(VLA_WIDTH, VLA_HEIGHT),
+        )
+        gt = xvla.get_cube_position(model, data)
+        print(f"  Detected 3D position: [{detected_block_pos[0]:.3f}, {detected_block_pos[1]:.3f}, {detected_block_pos[2]:.3f}]")
+        if gt is not None:
+            err = np.linalg.norm(detected_block_pos - gt)
+            print(f"  Ground truth:         [{gt[0]:.3f}, {gt[1]:.3f}, {gt[2]:.3f}]")
+            print(f"  Detection error:      {err:.3f}m")
 
 # Get initial state
 initial_ee_pos, _ = xvla.get_ee_pose(model, data)
@@ -225,7 +251,12 @@ while True:
             goal_xyz = initial_ee_pos + np.array([0.0, 0.0, 0.2])
             goal_rot6d = xvla.rotation_matrix_to_6d(np.eye(3))
         else:
-            block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
+            if detected_block_pos is not None:
+                block_pos = detected_block_pos
+            elif cube_pos_now is not None:
+                block_pos = cube_pos_now
+            else:
+                block_pos = np.zeros(3)
             actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos, step_size=args.step_size)
             goal_xyz = block_pos
             goal_rot6d = rot6d
