@@ -179,8 +179,10 @@ smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitte
 
 while True:
     # 1. Render cameras
+    #    Only use the 'up' (over-shoulder) view for the VLA — BridgeData's
+    #    second camera is often black, so pass a black image for image2.
     img = render_camera('up')
-    img2 = render_camera('side')
+    img2 = np.zeros((VLA_HEIGHT, VLA_WIDTH, 3), dtype=np.uint8)
 
     # 2. Build observation and run inference
     actions_np = None
@@ -297,8 +299,8 @@ while True:
         combined.paste(Image.fromarray(snap_up), (0, 30))
         combined.paste(Image.fromarray(snap_side), (W + 20, 30))
         draw = ImageDraw.Draw(combined)
-        draw.text((W // 2 - 50, 5), 'image (over the shoulder)', fill=(0, 0, 0))
-        draw.text((W + 20 + W // 2 - 30, 5), 'image2 (side)', fill=(0, 0, 0))
+        draw.text((W // 2 - 50, 5), 'image (VLA input)', fill=(0, 0, 0))
+        draw.text((W + 20 + W // 2 - 30, 5), 'side (debug only)', fill=(0, 0, 0))
         combined.save('camera_views.png')
         print("  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True

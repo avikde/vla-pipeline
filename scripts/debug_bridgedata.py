@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Compare MuJoCo camera views against BridgeData training frames.
+
+Downloads a BridgeData episode with a pick-block task and renders a
+side-by-side camera_comparison.png for visual inspection.
+
+Usage:
+    python scripts/debug_bridgedata.py
+    python scripts/debug_bridgedata.py --episode 2076
+"""
+
+import argparse
+import subprocess
+import sys
+
+import mujoco
+import numpy as np
+from huggingface_hub import hf_hub_download
+import pandas as pd
+from PIL import Image, ImageDraw
+
+sys.path.insert(0, "scripts")
+import xvla_policy as xvla
+
+REPO = "IPEC-COMMUNITY/bridge_orig_lerobot"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--episode", type=int, default=2076,
+                    help="BridgeData episode index (default: 2076, 'pick up the red cube')")
+args = parser.parse_args()
+
+ep = args.episode
+chunk = ep // 1000
+
+# --- Download BridgeData episode ---
+print(f"Downloading BridgeData episode {ep} (chunk {chunk})...")
+paths = {}
+for key, fname in [
+    ("img0", f"videos/chunk-{chunk:03d}/observation.images.image_0/episode_{ep:06d}.mp4"),
+    ("img1", f"videos/chunk-{chunk:03d}/observation.images.image_1/episode_{ep:06d}.mp4"),
+    ("data", f"data/chunk-{chunk:03d}/episode_{ep:06d}.parquet"),
+]:
+    paths[key] = hf_hub_download(REPO, fname, repo_type="dataset")
+    print(f"  {fname}")
+
+# Extract first frame from each video
+for cam, key in [("image_0", "img0"), ("image_1", "img1")]:
+    out = f"bridgedata_{cam}_ep{ep}.png"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", paths[key], "-frames:v", "1", out],
+        capture_output=True,
+    )
+
+# Read BridgeData state
+df = pd.read_parquet(paths["data"])
+bd_state = np.array(df["observation.state"].iloc[0])
+print(f"\nBridgeData ep{ep} state:")
+print(f"  x={bd_state[0]:.4f} y={bd_state[1]:.4f} z={bd_state[2]:.4f}")
+print(f"  roll={bd_state[3]:.4f} pitch={bd_state[4]:.4f} yaw={bd_state[5]:.4f}")
+print(f"  gripper={bd_state[7]:.4f}")
+
+# --- Render MuJoCo cameras ---
+print("\nRendering MuJoCo cameras...")
+model = mujoco.MjModel.from_xml_path("assets/widowx/widowx_vision_scene.xml")
+data = mujoco.MjData(model)
+data.qpos[:8] = model.keyframe("home").qpos[:8]
+data.ctrl[:] = model.keyframe("home").ctrl
+for _ in range(100):
+    mujoco.mj_step(model, data)
+
+renderer = mujoco.Renderer(model, height=256, width=256)
+for cam_name in ["up", "side"]:
+    renderer.update_scene(data, camera=model.camera(cam_name).id)
+    img = renderer.render()
+    Image.fromarray(img).save(f"mujoco_{cam_name}_frame0.png")
+
+mj_state = xvla.get_ee_state_8d(model, data)
+print(f"\nMuJoCo state:")
+print(f"  x={mj_state[0]:.4f} y={mj_state[1]:.4f} z={mj_state[2]:.4f}")
+print(f"  roll={mj_state[3]:.4f} pitch={mj_state[4]:.4f} yaw={mj_state[5]:.4f}")
+print(f"  gripper={mj_state[7]:.4f}")
+
+# --- Build comparison image ---
+W, H, GAP, HDR = 256, 256, 10, 25
+bd0 = Image.open(f"bridgedata_image_0_ep{ep}.png").resize((W, H))
+bd1 = Image.open(f"bridgedata_image_1_ep{ep}.png").resize((W, H))
+mj_up = Image.open("mujoco_up_frame0.png")
+mj_side = Image.open("mujoco_side_frame0.png")
+
+canvas = Image.new("RGB", (W * 2 + GAP, (H + HDR) * 2 + GAP), (255, 255, 255))
+draw = ImageDraw.Draw(canvas)
+
+draw.text((10, 5), f"BridgeData image_0 (ep{ep})", fill=(0, 0, 0))
+canvas.paste(bd0, (0, HDR))
+draw.text((W + GAP + 10, 5), "BridgeData image_1", fill=(0, 0, 0))
+canvas.paste(bd1, (W + GAP, HDR))
+
+y2 = H + HDR + GAP
+draw.text((10, y2), 'MuJoCo "up"', fill=(0, 0, 0))
+canvas.paste(mj_up, (0, y2 + HDR))
+draw.text((W + GAP + 10, y2), 'MuJoCo "side"', fill=(0, 0, 0))
+canvas.paste(mj_side, (W + GAP, y2 + HDR))
+
+canvas.save("camera_comparison.png")
+print("\nSaved camera_comparison.png")
