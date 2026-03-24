@@ -2,47 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+@README.md
 
-Integrates X-VLA (Vision-Language-Action) model inference with low-level robot control for the WidowX 250s arm in MuJoCo simulation. The goal is: given a natural language task and camera images, generate end-effector trajectories and execute them.
+## Blog posts for context
 
-It ties to a series of blog posts, of which these two are helpful context:
 - https://www.avikde.me/p/the-architecture-behind-end-to-end
 - https://www.avikde.me/p/debugging-as-architecture-insight
-
-## Setup
-
-```bash
-python3.13 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install mujoco huggingface_hub hf_xet "lerobot[xvla]"
-# For NVIDIA GPU (run after lerobot):
-pip uninstall torch torchvision -y && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-```
-
-Verify:
-```bash
-python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
-```
-
-On Windows, use `python` and not `python3`. On Mac, use `mjpython`.
-
-## Running Scripts
-
-```bash
-# Main VLA inference demo (opens MuJoCo viewer)
-python scripts/demo_xvla_widowx_debug.py
-
-# Flags:
-# --no-vla              Use reference policy instead of X-VLA
-# -v / --verbose        Per-step debug output
-# -d / --dry-run        Visualize trajectory without running IK/control
-# -f / --free-cam       Free orbit camera (default: locked to primary camera)
-# --step-size 0.005     Reference policy movement speed (m/step)
-# --kp 10               Override proportional gain for arm actuators
-```
 
 No test suite or linter configured. Pyright is set up for type checking (standard mode).
 
