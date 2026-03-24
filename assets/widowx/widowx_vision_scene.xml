@@ -39,7 +39,7 @@
     <!-- Cameras matching X-VLA WidowX training setup (BridgeData) -->
 
     <!-- Primary camera - over-the-(right)-shoulder view (BridgeData primary camera) -->
-    <camera name="primary" pos="0.0 -0.2 0.4" xyaxes="0.5 -0.7 0  0.5 0.5 0.5" mode="fixed" fovy="45"/>
+    <camera name="primary" pos="0.0 -0.2 0.4" xyaxes="0.5 -0.7 0  0.5 0.5 0.6" mode="fixed" fovy="39"/>
 
     <!-- Additional third-person view for debugging -->
     <camera name="third_person" pos="0.5 0.5 0.4" xyaxes="-1 1 0 -0.5 -0.5 1" mode="fixed"/>
