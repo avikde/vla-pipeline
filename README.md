@@ -89,7 +89,14 @@ python -c "import jax; print('JAX backend:', jax.default_backend()); print('JAX 
 python scripts/demo_xvla_widowx.py
 ```
 
-This demonstrates X-VLA's modular soft prompt architecture using the WidowX robot with the `lerobot/xvla-widowx` checkpoint (fine-tuned on BridgeData).
+## Gemini ER
+
+```shell
+pip install google-genai
+```
+
+Get an API key and set the `GEMINI_API_KEY` environment variable as described https://ai.google.dev/gemini-api/docs/api-key.
+
 
 ## Acknowledgements
 
