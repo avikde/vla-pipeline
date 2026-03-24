@@ -48,7 +48,7 @@ Return JSON: {{"point": [y, x]}} with coordinates normalized to 0-1000."""
     result = json.loads(json_match.group(1) if json_match else raw)
 
     if "point" not in result:
-        print(f"  ❌ No 'point' in Gemini ER response")
+        print("  ❌ No 'point' in Gemini ER response")
         return None
 
     y_norm, x_norm = result["point"]

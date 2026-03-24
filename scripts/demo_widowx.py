@@ -18,6 +18,7 @@ import torch
 from PIL import Image
 
 import widowx_control as ctrl
+import gemini_er_policy as gemini_er
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='WidowX Robot Demo')
@@ -62,8 +63,6 @@ if args.planner == 'xvla':
         sys.exit(1)
 else:
     import xvla_policy as xvla
-    if args.planner == 'gemini-er':
-        import gemini_er_policy as gemini_er
     print(f"\n[1/7] Skipping VLA load (planner={args.planner}).")
 
 # Load WidowX MuJoCo model
