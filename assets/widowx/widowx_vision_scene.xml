@@ -11,7 +11,7 @@
 
   <asset>
     <!-- Wooden table material (light oak, matching BridgeData) -->
-    <texture name="wood" type="2d" builtin="flat" rgb1="0.72 0.58 0.42" rgb2="0.65 0.50 0.35" width="512" height="512" mark="random" markrgb="0.68 0.54 0.38" random="0.02"/>
+    <texture name="wood" type="2d" builtin="flat" rgb1="0.55 0.42 0.30" rgb2="0.50 0.38 0.26" width="512" height="512" mark="random" markrgb="0.35 0.25 0.18" random="0.05"/>
     <material name="wood" texture="wood" texrepeat="3 3" specular="0.1" shininess="0.1"/>
   </asset>
 
@@ -39,7 +39,7 @@
     <!-- Cameras matching X-VLA WidowX training setup (BridgeData) -->
 
     <!-- Primary camera - over-the-(right)-shoulder view (BridgeData primary camera) -->
-    <camera name="primary" pos="-0.25 -0.2 0.5" xyaxes="0.3 -1 0 1.5 0.4 1.6" mode="fixed"/>
+    <camera name="primary" pos="0.0 -0.2 0.4" xyaxes="0.5 -0.7 0  0.5 0.5 0.5" mode="fixed" fovy="45"/>
 
     <!-- Additional third-person view for debugging -->
     <camera name="third_person" pos="0.5 0.5 0.4" xyaxes="-1 1 0 -0.5 -0.5 1" mode="fixed"/>
