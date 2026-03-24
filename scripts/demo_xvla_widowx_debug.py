@@ -242,10 +242,15 @@ while True:
                 print(f"  Alignment:  {fmt(alignment)} ({label})  dist_to_cube={fmt(cd)}m")
 
     # 4. IK + control (skipped in --dry-run mode)
+    #    Use the current dequeued action (actions_np) for IK each step,
+    #    not the stale cached first entry. cached_action_targets is for viz only.
     ik_target_pos = None
-    if not args.dry_run and cached_action_targets:
-        ik_target_pos = cached_action_targets[0][:3].copy()
-        ctrl_target = controller.solve_ik(data.qpos, cached_action_targets, debug=args.verbose)
+    current_action_10d = None
+    if actions_np is not None and len(actions_np) >= 10:
+        current_action_10d = actions_np[:10].copy()
+    if not args.dry_run and current_action_10d is not None:
+        ik_target_pos = current_action_10d[:3].copy()
+        ctrl_target = controller.solve_ik(data.qpos, [current_action_10d], debug=args.verbose)
         if ctrl_target is not None:
             controller.apply_control(data.ctrl, ctrl_target)
             if args.verbose:

@@ -36,7 +36,7 @@ GRIPPER_CLOSE = 0.015  # m
 EE_BODY = "wx250s/gripper_link"
 LEFT_FINGER_BODY  = "wx250s/left_finger_link"
 RIGHT_FINGER_BODY = "wx250s/right_finger_link"
-FINGER_TIP_OFFSET = 0.02  # metres forward along gripper X axis (must match xvla_policy.py)
+FINGER_TIP_OFFSET = 0.0  # no offset; finger midpoint matches BridgeData ee_gripper_link
 
 
 # ---------------------------------------------------------------------------

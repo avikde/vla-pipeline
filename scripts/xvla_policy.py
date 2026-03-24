@@ -170,22 +170,17 @@ def decode_ee6d_both_timesteps(action_vec: np.ndarray):
 # (require mujoco to be importable, but mujoco is not imported at module level)
 # ---------------------------------------------------------------------------
 
-FINGER_TIP_OFFSET = 0.02  # metres forward along gripper X axis (half finger length)
-
 def get_ee_pose(model, data):
     """Return (ee_pos, ee_rot_3x3) for the WidowX end-effector.
 
-    Position is the midpoint between the two finger links, offset forward by
-    FINGER_TIP_OFFSET along the gripper's local X axis to land between the
-    fingertips rather than at the finger-link origins.
+    Position is the midpoint between the two finger links (matching
+    BridgeData's ee_gripper_link convention).
     Orientation is taken from gripper_link.
     """
     left_id  = model.body("wx250s/left_finger_link").id
     right_id = model.body("wx250s/right_finger_link").id
-    finger_midpoint = (data.xpos[left_id] + data.xpos[right_id]) / 2.0
+    ee_pos = (data.xpos[left_id] + data.xpos[right_id]) / 2.0
     ee_rot = data.xmat[model.body("wx250s/gripper_link").id].reshape(3, 3).copy()
-    local_x = ee_rot[:, 0]  # gripper forward axis in world frame
-    ee_pos = finger_midpoint + FINGER_TIP_OFFSET * local_x
     return ee_pos.copy(), ee_rot
 
 
