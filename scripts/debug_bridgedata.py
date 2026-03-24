@@ -68,10 +68,12 @@ data.ctrl[:] = model.keyframe("home").ctrl
 for _ in range(100):
     mujoco.mj_step(model, data)
 
-renderer = mujoco.Renderer(model, height=256, width=256)
+# Render at 4:3 then squish to 256x256 to match BridgeData distortion
+renderer = mujoco.Renderer(model, height=256, width=342)
 renderer.update_scene(data, camera=model.camera("primary").id)
-img = renderer.render()
-Image.fromarray(img).save("mujoco_primary_frame0.png")
+raw = renderer.render()
+img = Image.fromarray(raw).resize((256, 256))
+img.save("mujoco_primary_frame0.png")
 
 mj_state = xvla.get_ee_state_8d(model, data)
 print(f"\nMuJoCo state:")
