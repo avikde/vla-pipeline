@@ -18,8 +18,8 @@
   <worldbody>
 
     <!-- Better lighting for vision -->
-    <light pos="0.3 0.3 1.0" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
-    <light pos="-0.3 -0.3 0.8" dir="0 0 -1" diffuse="0.4 0.4 0.4"/>
+    <light pos="-0.3 0.3 1.0" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <light pos="-0.3 -0.3 0.8" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
     <!-- Wooden table (matching BridgeData setup) -->
     <body name="table" pos="0.3 0 -0.01">
       <geom name="table_top" type="box" size="0.2 0.5 0.01" material="wood"/>
