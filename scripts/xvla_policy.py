@@ -245,7 +245,7 @@ def get_ee_state_8d(model, data) -> np.ndarray:
 
 def get_cube_position(model, data, cube_name: str = "red_block"):
     """Return the world-frame position of a named body, or None if not found."""
-    for name in [cube_name, "blue_block", "red_box", "cube"]:
+    for name in [cube_name, "red_box", "cube"]:
         try:
             return data.xpos[model.body(name).id].copy()
         except Exception:

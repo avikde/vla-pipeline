@@ -26,14 +26,14 @@
     </body>
 
     <!-- Red block (pick target) -->
-    <body name="red_block" pos="0.25 0.1 0.02">
+    <body name="red_block" pos="0.2 -0.1 0.02">
       <geom name="red_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.8 0.1 0.1 1" mass="0.05"/>
       <freejoint/>
     </body>
 
-    <!-- Blue block (placement target) -->
-    <body name="blue_block" pos="0.25 -0.1 0.02">
-      <geom name="blue_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.1 0.1 0.8 1"/>
+    <!-- Blue target (placement zone) -->
+    <body name="blue_target" pos="0.25 0.1 0.001">
+      <geom name="blue_target_geom" type="cylinder" size="0.05 0.001" rgba="0.1 0.1 0.8 1"/>
     </body>
 
     <!-- Cameras matching X-VLA WidowX training setup (BridgeData) -->
