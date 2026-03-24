@@ -1,0 +1,10 @@
+[tool.pyright]
+venvPath = "."
+venv = "venv"
+
+# Use standard type-checking mode
+typeCheckingMode = "standard"
+
+# Mujoco
+reportAttributeAccessIssue = "none"
+reportOptionalMemberAccess = "none"

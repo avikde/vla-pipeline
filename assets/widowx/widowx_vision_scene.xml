@@ -5,23 +5,25 @@
   <option gravity="0 0 -9.81" timestep="0.002"/>
 
   <visual>
-    <headlight ambient="0.5 0.5 0.5"/>
+    <headlight ambient="0.8 0.8 0.8"/>
     <global offwidth="640" offheight="480"/>
   </visual>
 
   <asset>
-    <!-- Ground plane texture -->
-    <texture name="grid" type="2d" builtin="checker" rgb1="0.2 0.2 0.2" rgb2="0.3 0.3 0.3" width="512" height="512"/>
-    <material name="grid" texture="grid" texrepeat="2 2"/>
+    <!-- Wooden table material (light oak, matching BridgeData) -->
+    <texture name="wood" type="2d" builtin="flat" rgb1="0.55 0.42 0.30" rgb2="0.50 0.38 0.26" width="512" height="512" mark="random" markrgb="0.35 0.25 0.18" random="0.05"/>
+    <material name="wood" texture="wood" texrepeat="3 3" specular="0.1" shininess="0.1"/>
   </asset>
 
   <worldbody>
-    <!-- Ground plane -->
-    <geom name="floor" pos="0 0 0" size="1.5 1.5 0.05" type="plane" material="grid"/>
 
     <!-- Better lighting for vision -->
-    <light pos="0.3 0.3 1.0" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
-    <light pos="-0.3 -0.3 0.8" dir="0 0 -1" diffuse="0.4 0.4 0.4"/>
+    <light pos="-0.3 0.3 1.0" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <light pos="-0.3 -0.3 0.8" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <!-- Wooden table (matching BridgeData setup) -->
+    <body name="table" pos="0.3 0 -0.01">
+      <geom name="table_top" type="box" size="0.2 0.5 0.01" material="wood"/>
+    </body>
 
     <!-- Red block (pick target) -->
     <body name="red_block" pos="0.25 0.1 0.02">
@@ -36,13 +38,8 @@
 
     <!-- Cameras matching X-VLA WidowX training setup (BridgeData) -->
 
-    <!-- "up" camera - over-the-(right)-shoulder view (BridgeData primary camera) -->
-    <camera name="up" pos="-0.25 -0.2 0.5" xyaxes="0.3 -1 0 1.5 0.4 1.6" mode="fixed"/>
-    <!-- over the left shoulder -->
-    <!-- <camera name="up" pos="-0.25 0.2 0.5" xyaxes="-0.3 -1 0 1.5 0.4 1.6" mode="fixed"/> -->
-
-    <!-- "side" camera - angled side view -->
-    <camera name="side" pos="0.5 0.4 0.35" xyaxes="-0.8 0.6 0 -0.3 -0.4 1" mode="fixed"/>
+    <!-- Primary camera - over-the-(right)-shoulder view (BridgeData primary camera) -->
+    <camera name="primary" pos="0.0 -0.2 0.4" xyaxes="0.5 -0.7 0  0.5 0.5 0.6" mode="fixed" fovy="39"/>
 
     <!-- Additional third-person view for debugging -->
     <camera name="third_person" pos="0.5 0.5 0.4" xyaxes="-1 1 0 -0.5 -0.5 1" mode="fixed"/>

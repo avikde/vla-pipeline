@@ -170,10 +170,26 @@ def decode_ee6d_both_timesteps(action_vec: np.ndarray):
 # (require mujoco to be importable, but mujoco is not imported at module level)
 # ---------------------------------------------------------------------------
 
+# MuJoCo gripper_link has X pointing down, Z pointing forward.
+# Interbotix SDK (BridgeData) uses Z-forward convention.
+# This rotation aligns MuJoCo's frame to Interbotix's ee_gripper_link frame.
+_MUJOCO_TO_INTERBOTIX = np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], dtype=np.float64)
+
+
 def get_ee_pose(model, data):
-    """Return (ee_pos, ee_rot_3x3) for the WidowX gripper_link body."""
-    ee_body_id = model.body("wx250s/gripper_link").id
-    return data.xpos[ee_body_id].copy(), data.xmat[ee_body_id].reshape(3, 3).copy()
+    """Return (ee_pos, ee_rot_3x3) for the WidowX end-effector.
+
+    Position is the midpoint between the two finger links (matching
+    BridgeData's ee_gripper_link convention).
+    Orientation is the gripper_link frame rotated to match Interbotix's
+    Z-forward EE convention (used in BridgeData).
+    """
+    left_id  = model.body("wx250s/left_finger_link").id
+    right_id = model.body("wx250s/right_finger_link").id
+    ee_pos = (data.xpos[left_id] + data.xpos[right_id]) / 2.0
+    ee_rot = data.xmat[model.body("wx250s/gripper_link").id].reshape(3, 3)
+    ee_rot = ee_rot @ _MUJOCO_TO_INTERBOTIX
+    return ee_pos.copy(), ee_rot.copy()
 
 
 def rotation_matrix_to_euler(rot_mat: np.ndarray):
@@ -215,11 +231,15 @@ def get_ee_state_8d(model, data) -> np.ndarray:
     roll, pitch, yaw = rotation_matrix_to_euler(ee_rot)
     gripper_joint_id = model.joint("left_finger").id
     gripper_pos = data.qpos[gripper_joint_id]
+    # Map raw joint position [0.015, 0.037] → [0, 1] to match BridgeData convention
+    GRIPPER_CLOSE = 0.015
+    GRIPPER_OPEN = 0.037
+    gripper_normalized = (gripper_pos - GRIPPER_CLOSE) / (GRIPPER_OPEN - GRIPPER_CLOSE)
     return np.array([
         ee_pos[0], ee_pos[1], ee_pos[2],
         roll, pitch, yaw,
         0.0,
-        gripper_pos,
+        float(np.clip(gripper_normalized, 0.0, 1.0)),
     ], dtype=np.float32)
 
 
