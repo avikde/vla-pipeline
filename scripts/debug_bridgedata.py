@@ -69,10 +69,9 @@ for _ in range(100):
     mujoco.mj_step(model, data)
 
 renderer = mujoco.Renderer(model, height=256, width=256)
-for cam_name in ["up", "side"]:
-    renderer.update_scene(data, camera=model.camera(cam_name).id)
-    img = renderer.render()
-    Image.fromarray(img).save(f"mujoco_{cam_name}_frame0.png")
+renderer.update_scene(data, camera=model.camera("primary").id)
+img = renderer.render()
+Image.fromarray(img).save("mujoco_primary_frame0.png")
 
 mj_state = xvla.get_ee_state_8d(model, data)
 print(f"\nMuJoCo state:")
@@ -80,26 +79,18 @@ print(f"  x={mj_state[0]:.4f} y={mj_state[1]:.4f} z={mj_state[2]:.4f}")
 print(f"  roll={mj_state[3]:.4f} pitch={mj_state[4]:.4f} yaw={mj_state[5]:.4f}")
 print(f"  gripper={mj_state[7]:.4f}")
 
-# --- Build comparison image ---
+# --- Build comparison image (1x2: BridgeData vs MuJoCo) ---
 W, H, GAP, HDR = 256, 256, 10, 25
 bd0 = Image.open(f"bridgedata_image_0_ep{ep}.png").resize((W, H))
-bd1 = Image.open(f"bridgedata_image_1_ep{ep}.png").resize((W, H))
-mj_up = Image.open("mujoco_up_frame0.png")
-mj_side = Image.open("mujoco_side_frame0.png")
+mj_primary = Image.open("mujoco_primary_frame0.png")
 
-canvas = Image.new("RGB", (W * 2 + GAP, (H + HDR) * 2 + GAP), (255, 255, 255))
+canvas = Image.new("RGB", (W * 2 + GAP, H + HDR), (255, 255, 255))
 draw = ImageDraw.Draw(canvas)
 
 draw.text((10, 5), f"BridgeData image_0 (ep{ep})", fill=(0, 0, 0))
 canvas.paste(bd0, (0, HDR))
-draw.text((W + GAP + 10, 5), "BridgeData image_1", fill=(0, 0, 0))
-canvas.paste(bd1, (W + GAP, HDR))
-
-y2 = H + HDR + GAP
-draw.text((10, y2), 'MuJoCo "up"', fill=(0, 0, 0))
-canvas.paste(mj_up, (0, y2 + HDR))
-draw.text((W + GAP + 10, y2), 'MuJoCo "side"', fill=(0, 0, 0))
-canvas.paste(mj_side, (W + GAP, y2 + HDR))
+draw.text((W + GAP + 10, 5), 'MuJoCo "primary"', fill=(0, 0, 0))
+canvas.paste(mj_primary, (W + GAP, HDR))
 
 canvas.save("camera_comparison.png")
 print("\nSaved camera_comparison.png")

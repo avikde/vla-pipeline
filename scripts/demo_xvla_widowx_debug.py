@@ -13,7 +13,7 @@ import mujoco
 import mujoco.viewer as mj_viewer
 import numpy as np
 import torch
-from PIL import Image, ImageDraw
+from PIL import Image
 import sys
 
 import xvla_policy as xvla
@@ -179,9 +179,9 @@ smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitte
 
 while True:
     # 1. Render cameras
-    #    Only use the 'up' (over-shoulder) view for the VLA — BridgeData's
+    #    Only use the 'primary' (over-shoulder) view for the VLA — BridgeData's
     #    second camera is often black, so pass a black image for image2.
-    img = render_camera('up')
+    img = render_camera('primary')
     img2 = np.zeros((VLA_HEIGHT, VLA_WIDTH, 3), dtype=np.uint8)
 
     # 2. Build observation and run inference
@@ -293,15 +293,8 @@ while True:
     if not camera_snapshot_saved and cached_action_targets:
         W, H = VLA_WIDTH, VLA_HEIGHT
         traj = [t[:3] for t in cached_action_targets]
-        snap_up = render_camera('up', trajectory=traj)
-        snap_side = render_camera('side', trajectory=traj)
-        combined = Image.new('RGB', (W * 2 + 20, H + 30), color=(255, 255, 255))
-        combined.paste(Image.fromarray(snap_up), (0, 30))
-        combined.paste(Image.fromarray(snap_side), (W + 20, 30))
-        draw = ImageDraw.Draw(combined)
-        draw.text((W // 2 - 50, 5), 'image (VLA input)', fill=(0, 0, 0))
-        draw.text((W + 20 + W // 2 - 30, 5), 'side (debug only)', fill=(0, 0, 0))
-        combined.save('camera_views.png')
+        snap_up = render_camera('primary', trajectory=traj)
+        Image.fromarray(snap_up).save('camera_views.png')
         print("  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True
 
