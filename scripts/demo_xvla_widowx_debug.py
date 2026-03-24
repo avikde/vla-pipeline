@@ -175,6 +175,7 @@ def fmt_vec(v):
 step = 0
 cached_action_targets = []
 camera_snapshot_saved = False
+smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitter
 
 while True:
     # 1. Render cameras
@@ -250,6 +251,10 @@ while True:
         current_action_10d = actions_np[:10].copy()
     if not args.dry_run and current_action_10d is not None:
         ik_target_pos = current_action_10d[:3].copy()
+        # Smooth gripper to suppress VLA output jitter
+        GRIPPER_EMA_ALPHA = 0.15
+        smoothed_gripper += GRIPPER_EMA_ALPHA * (float(current_action_10d[9]) - smoothed_gripper)
+        current_action_10d[9] = smoothed_gripper
         ctrl_target = controller.solve_ik(data.qpos, [current_action_10d], debug=args.verbose)
         if ctrl_target is not None:
             controller.apply_control(data.ctrl, ctrl_target)
