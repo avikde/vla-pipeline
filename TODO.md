@@ -1,0 +1,2 @@
+- Try to add a wooden table at z=0 to match the dataset
+- Manually edit to improve camera_comparison.png
