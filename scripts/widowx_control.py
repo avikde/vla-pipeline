@@ -104,6 +104,10 @@ class WidowXController:
         self._qpos_addrs = [model.jnt_qposadr[j] for j in self._jnt_ids]
         self._dof_addrs  = [model.jnt_dofadr[j]  for j in self._jnt_ids]
 
+        # Home joint positions for IK regularization (prevents branch-switching)
+        home_ctrl = model.keyframe('home').ctrl
+        self._home_q = np.array([home_ctrl[i] for i in range(6)], dtype=np.float64)
+
     def _ee_pos(self, d) -> np.ndarray:
         """Compute EE position matching get_ee_pose: finger midpoint + tip offset."""
         mid = (d.xpos[self._lf_id] + d.xpos[self._rf_id]) / 2.0
@@ -171,7 +175,9 @@ class WidowXController:
                     rot_err = np.zeros(3)
 
                 J   = np.vstack([Jp, Jr])           # (6, 6)
-                err = np.concatenate([pos_err, rot_err])
+                # Scale rotation error down so position tracking dominates
+                ORI_WEIGHT = 0.2
+                err = np.concatenate([pos_err, ORI_WEIGHT * rot_err])
             else:
                 J   = Jp                             # (3, 6)
                 err = pos_err
@@ -179,6 +185,17 @@ class WidowXController:
             m = J.shape[0]
             Jpinv = J.T @ np.linalg.solve(J @ J.T + self._damping * np.eye(m), np.eye(m))
             dq = Jpinv @ err
+
+            # Bias toward home configuration to prevent branch-switching
+            HOME_BIAS = 0.02
+            q_curr = np.array([scratch.qpos[a] for a in self._qpos_addrs])
+            dq += HOME_BIAS * (self._home_q - q_curr)
+
+            # Clamp joint step to prevent large orientation errors from flinging joints
+            MAX_DQ = 0.1  # rad per IK iteration
+            dq_norm = np.linalg.norm(dq)
+            if dq_norm > MAX_DQ:
+                dq *= MAX_DQ / dq_norm
 
             for i, addr in enumerate(self._qpos_addrs):
                 scratch.qpos[addr] += dq[i]

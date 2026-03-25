@@ -44,6 +44,11 @@ for i in range(NUM_MARKERS):
     fade = i / max(1, NUM_MARKERS - 1)
     MARKER_COLORS.append(np.array([fade, 1.0 - fade, 0.0, 0.6], dtype=np.float32))
 
+# Fixed downward-facing gripper orientation for gemini-er:
+# Body X (finger axis) → world -Z, Body Y → world Y, Body Z → world X
+# Stored as [col0, col1] to match ee6d_to_pos_rot's expected layout.
+GRASP_ROT6D = np.array([0, 0, -1, 0, 1, 0], dtype=np.float32)
+
 # Load policy + planner-specific imports
 policy = tokenizer = language_tokens = language_attention_mask = None
 device = "cpu"
@@ -175,10 +180,8 @@ if cube_pos is not None:
     print(f"     - Distance to cube: {np.linalg.norm(initial_ee_pos - cube_pos):.3f}m")
 
 # Build controller (allocates scratch MjData + caches IDs once).
-# Orientation IK disabled: the no-VLA reference keeps current Euler angles which
-# causes wrist_rotate to spin through singularities. Position-only IK is sufficient
-# for validating reach behaviour.
-controller = ctrl.WidowXController(model, use_orientation=False)
+# Orientation IK enabled for xvla/gemini-er; disabled for hardcoded to avoid singularities.
+controller = ctrl.WidowXController(model, use_orientation=(args.planner != 'hardcoded'))
 # Home arm joints used as fixed null-space reference to prevent IK from drifting
 # into a drooped configuration branch.
 home_null_ref = model.keyframe('home').ctrl[:6].copy()
@@ -280,7 +283,7 @@ while True:
                 print(f"  >>> Waypoint {waypoint_idx}/{n}: target=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}] gripper={wp_grip:.1f}")
                 prev_waypoint_idx = waypoint_idx
             goal_xyz = wp_xyz
-            goal_rot6d = rot6d
+            goal_rot6d = GRASP_ROT6D
             goal_gripper = wp_grip
         else:
             # Hardcoded: use ground-truth block position
@@ -293,8 +296,10 @@ while True:
         actions_np = xvla.generate_non_vla_reference(
             ee_state_8d, [img, img2], goal_xyz, step_size=args.step_size
         )
-        # Override gripper in the action
+        # Override gripper and orientation in the action
         if actions_np is not None:
+            actions_np[3:9] = goal_rot6d
+            actions_np[13:19] = goal_rot6d
             actions_np[9] = goal_gripper
             actions_np[19] = goal_gripper
 
