@@ -261,7 +261,7 @@ while True:
             goal_rot6d = ctrl.rotation_matrix_to_6d(np.eye(3))
             goal_gripper = 1.0
         elif waypoint_queue and waypoint_idx < len(waypoint_queue):
-            # Gemini ER waypoint sequencing
+            # Gemini ER waypoint sequencing — pass target directly to IK
             wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
             dist_to_wp = np.linalg.norm(current_xyz - wp_xyz)
             WAYPOINT_THRESHOLD = 0.02  # 2cm
@@ -277,11 +277,20 @@ while True:
                 waypoint_idx += 1
                 waypoint_stall_steps = 0
                 wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
-            # Print step on change
             if waypoint_idx != prev_waypoint_idx:
                 n = len(waypoint_queue)
                 print(f"  >>> Waypoint {waypoint_idx}/{n}: target=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}] gripper={wp_grip:.1f}")
                 prev_waypoint_idx = waypoint_idx
+
+            # Build 20D action directly from waypoint (skip generate_reference_action)
+            actions_np = np.zeros(20, dtype=np.float32)
+            actions_np[0:3] = wp_xyz
+            actions_np[3:9] = GRASP_ROT6D
+            actions_np[9] = wp_grip
+            actions_np[10:13] = wp_xyz
+            actions_np[13:19] = GRASP_ROT6D
+            actions_np[19] = wp_grip
+
             goal_xyz = wp_xyz
             goal_rot6d = GRASP_ROT6D
             goal_gripper = wp_grip
@@ -292,24 +301,26 @@ while True:
             goal_rot6d = rot6d
             goal_gripper = 1.0
 
-        # Generate action toward goal
-        actions_np = ctrl.generate_reference_action(
-            ee_state_8d, goal_xyz, step_size=args.step_size
-        )
-        # Override gripper and orientation in the action
-        if actions_np is not None:
-            actions_np[3:9] = goal_rot6d
-            actions_np[13:19] = goal_rot6d
-            actions_np[9] = goal_gripper
-            actions_np[19] = goal_gripper
+        # Generate action toward goal (for --up and hardcoded; gemini-er sets actions_np above)
+        if actions_np is None:
+            actions_np = ctrl.generate_reference_action(
+                ee_state_8d, goal_xyz, step_size=args.step_size
+            )
+            if actions_np is not None:
+                actions_np[3:9] = goal_rot6d
+                actions_np[13:19] = goal_rot6d
+                actions_np[9] = goal_gripper
+                actions_np[19] = goal_gripper
 
-        cached_action_targets = []
-        for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
-            wp = np.zeros(10, dtype=np.float32)
-            wp[0:3] = current_xyz + (goal_xyz - current_xyz) * t
-            wp[3:9] = goal_rot6d
-            wp[9]   = goal_gripper
-            cached_action_targets.append(wp)
+        # Interpolated trajectory dots (skip for gemini-er — waypoint markers suffice)
+        if not waypoint_queue:
+            cached_action_targets = []
+            for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
+                wp = np.zeros(10, dtype=np.float32)
+                wp[0:3] = current_xyz + (goal_xyz - current_xyz) * t
+                wp[3:9] = goal_rot6d
+                wp[9]   = goal_gripper
+                cached_action_targets.append(wp)
 
     # 3. Per-step debug output (--verbose only)
     if args.verbose:
