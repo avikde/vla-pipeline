@@ -20,7 +20,7 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, "scripts")
-import xvla_policy as xvla
+import widowx_control as ctrl
 
 REPO = "IPEC-COMMUNITY/bridge_orig_lerobot"
 
@@ -75,7 +75,7 @@ raw = renderer.render()
 img = Image.fromarray(raw).resize((256, 256))
 img.save("mujoco_primary_frame0.png")
 
-mj_state = xvla.get_ee_state_8d(model, data)
+mj_state = ctrl.get_ee_state_8d(model, data)
 print(f"\nMuJoCo state:")
 print(f"  x={mj_state[0]:.4f} y={mj_state[1]:.4f} z={mj_state[2]:.4f}")
 print(f"  roll={mj_state[3]:.4f} pitch={mj_state[4]:.4f} yaw={mj_state[5]:.4f}")

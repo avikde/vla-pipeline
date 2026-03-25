@@ -166,9 +166,9 @@ if args.planner == 'gemini-er':
         print(f"    [{i}] xyz=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}]  gripper={wp_grip:.1f}")
 
 # Get initial state
-initial_ee_pos, _ = xvla.get_ee_pose(model, data)
-cube_pos = xvla.get_cube_position(model, data)
-initial_ee_state = xvla.get_ee_state_8d(model, data)
+initial_ee_pos, _ = ctrl.get_ee_pose(model, data)
+cube_pos = ctrl.get_body_position(model, data)
+initial_ee_state = ctrl.get_ee_state_8d(model, data)
 
 print("\n  📍 Initial State:")
 print(f"     - EE position: [{initial_ee_pos[0]:.3f}, {initial_ee_pos[1]:.3f}, {initial_ee_pos[2]:.3f}]")
@@ -230,8 +230,8 @@ while True:
 
     # 2. Build observation and run inference
     actions_np = None
-    ee_state_8d = xvla.get_ee_state_8d(model, data)
-    cube_pos_now = xvla.get_cube_position(model, data)
+    ee_state_8d = ctrl.get_ee_state_8d(model, data)
+    cube_pos_now = ctrl.get_body_position(model, data)
 
     if policy is not None:
         observation = xvla.build_observation(
@@ -253,12 +253,12 @@ while True:
         queue_size = 0
         is_new_chunk = True
         current_xyz = ee_state_8d[0:3]
-        rot6d = xvla.rotation_matrix_to_6d(xvla.euler_to_rotation_matrix(*ee_state_8d[3:6]))
+        rot6d = ctrl.rotation_matrix_to_6d(ctrl.euler_to_rotation_matrix(*ee_state_8d[3:6]))
 
         if args.up:
             # Fixed target 0.2m above initial EE; ignores cube and current orientation drift.
             goal_xyz = initial_ee_pos + np.array([0.0, 0.0, 0.2])
-            goal_rot6d = xvla.rotation_matrix_to_6d(np.eye(3))
+            goal_rot6d = ctrl.rotation_matrix_to_6d(np.eye(3))
             goal_gripper = 1.0
         elif waypoint_queue and waypoint_idx < len(waypoint_queue):
             # Gemini ER waypoint sequencing
@@ -293,8 +293,8 @@ while True:
             goal_gripper = 1.0
 
         # Generate action toward goal
-        actions_np = xvla.generate_non_vla_reference(
-            ee_state_8d, [img, img2], goal_xyz, step_size=args.step_size
+        actions_np = ctrl.generate_reference_action(
+            ee_state_8d, goal_xyz, step_size=args.step_size
         )
         # Override gripper and orientation in the action
         if actions_np is not None:
@@ -313,8 +313,8 @@ while True:
 
     # 3. Per-step debug output (--verbose only)
     if args.verbose:
-        current_ee_pos, current_ee_rot = xvla.get_ee_pose(model, data)
-        xyz_1, rot6d_1, gripper_1 = xvla.decode_ee6d_action(actions_np) if actions_np is not None else (None, None, 0.0)
+        current_ee_pos, current_ee_rot = ctrl.get_ee_pose(model, data)
+        xyz_1, rot6d_1, gripper_1 = ctrl.decode_ee6d_action(actions_np) if actions_np is not None else (None, None, 0.0)
 
         print(f"\n--- Step {step} {'(NEW CHUNK) ' if is_new_chunk else ''}queue={queue_size} ---")
         print(f"  Proprio:    {fmt_vec(ee_state_8d)}")
@@ -354,7 +354,7 @@ while True:
 
     # Post-step: compare actual EE vs IK target to diagnose servo tracking
     if args.verbose and ik_target_pos is not None:
-        actual_ee_pos, _ = xvla.get_ee_pose(model, data)
+        actual_ee_pos, _ = ctrl.get_ee_pose(model, data)
         servo_err = np.linalg.norm(actual_ee_pos - ik_target_pos)
         print(f"  Post-step EE: {fmt_vec(actual_ee_pos)}  (target: {fmt_vec(ik_target_pos)})  servo_err={fmt(servo_err)}m")
         print(f"  qpos:  {fmt_vec(data.qpos[:6])}")
