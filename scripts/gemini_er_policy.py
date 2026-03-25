@@ -174,7 +174,8 @@ def detect_and_plan(
     render_size: tuple[int, int] = (342, 256),
     vla_size: tuple[int, int] = (256, 256),
 ) -> list[dict]:
-    """Run two-prompt Gemini ER pipeline: detect objects, then generate pick-and-place plan."""
+    """Run two-prompt Gemini ER pipeline: detect objects, then generate pick-and-place plan.
+    This is called once at startup (no replanning atm)."""
     image_bytes = _encode_image(image_rgb)
     h, w = image_rgb.shape[:2]
 
@@ -245,7 +246,7 @@ def plan_to_waypoints(
     render_size: tuple[int, int] = (342, 256),
     vla_size: tuple[int, int] = (256, 256),
 ) -> list[tuple[np.ndarray, float]]:
-    """Convert Gemini ER plan steps into a list of (xyz_3d, gripper_value) waypoints."""
+    """Convert Gemini ER plan steps into a list of (xyz_3d, gripper_value) waypoints. Called once at startup (no replanning atm)."""
     vla_w, vla_h = vla_size
     gripper = 1.0  # start open
     waypoints: list[tuple[np.ndarray, float]] = []
@@ -270,11 +271,13 @@ def plan_to_waypoints(
             waypoints.append((world_xy, gripper))
 
         elif func == "setGripperState" and len(args) >= 1:
-            gripper = 1.0 if args[0] else 0.0
-            # Attach gripper change to a stationary waypoint at current position
-            if waypoints:
-                last_xyz = waypoints[-1][0].copy()
-                waypoints.append((last_xyz, gripper))
+            new_gripper = 1.0 if args[0] else 0.0
+            if new_gripper != gripper:
+                gripper = new_gripper
+                # Attach gripper change to a stationary waypoint at current position
+                if waypoints:
+                    last_xyz = waypoints[-1][0].copy()
+                    waypoints.append((last_xyz, gripper))
 
     return waypoints
 
