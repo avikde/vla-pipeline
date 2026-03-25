@@ -1,6 +1,7 @@
 /venv
 .claude
 *.png
+demo.mp4
 *.log
 __pycache__
 .DS_Store

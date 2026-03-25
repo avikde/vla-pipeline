@@ -35,6 +35,8 @@ parser.add_argument('--up', action='store_true',
                     help='Reference policy: target 0.2m above initial EE (ignore cube); tests IK/control in isolation')
 parser.add_argument('-f', '--free-cam', action='store_true',
                     help='Use free orbit camera instead of locking to the primary camera')
+parser.add_argument('-s', '--save', action='store_true',
+                    help='Save primary camera recording to demo.mp4')
 args = parser.parse_args()
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
@@ -217,6 +219,7 @@ step = 0
 cached_action_targets = []
 camera_snapshot_saved = False
 smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitter
+recorded_frames: list[np.ndarray] = []
 prev_waypoint_idx = -1
 waypoint_stall_steps = 0
 WAYPOINT_STALL_LIMIT = 500  # ~1s at 0.002s timestep
@@ -406,6 +409,9 @@ while True:
         print("  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True
 
+    if args.save:
+        recorded_frames.append(render_camera('primary'))
+
     viewer.sync()
     if not viewer.is_running():
         print(f"\nViewer closed at step {step}")
@@ -414,4 +420,10 @@ while True:
     step += 1
 
 viewer.close()
+
+if args.save and recorded_frames:
+    import imageio.v3 as iio
+    iio.imwrite("demo.mp4", np.stack(recorded_frames), fps=30)
+    print(f"Saved recording → demo.mp4 ({len(recorded_frames)} frames)")
+
 print("\nDemo complete!")
