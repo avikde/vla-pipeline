@@ -164,16 +164,6 @@ def decode_ee6d_action(action_vec: np.ndarray):
     return xyz_1, rot6d_1, gripper_1
 
 
-def decode_ee6d_both_timesteps(action_vec: np.ndarray):
-    """Return both timesteps as (xyz_1, rot6d_1, grip_1, xyz_2, rot6d_2, grip_2)."""
-    if len(action_vec) < 20:
-        return (None,) * 6
-    return (
-        action_vec[0:3],  action_vec[3:9],  action_vec[9],
-        action_vec[10:13], action_vec[13:19], action_vec[19],
-    )
-
-
 def gripper_action_to_ctrl(gripper_val: float) -> float:
     """Map gripper scalar (0 = closed, 1 = open) to left_finger ctrl [m]."""
     return float(np.clip(

@@ -11,53 +11,6 @@ from google.genai import types
 from PIL import Image
 
 
-def detect_block_pixel(
-    image_rgb: np.ndarray, task: str = "Pick up the red block"
-) -> tuple[float, float] | None:
-    """Send image to Gemini ER, return (x_px, y_px) for the task's target object."""
-    h, w = image_rgb.shape[:2]
-
-    prompt = f"""You are looking at a robot workspace. The task is: "{task}"
-Point to the object referenced in the task.
-Return JSON: {{"point": [y, x]}} with coordinates normalized to 0-1000."""
-
-    client = genai.Client()
-
-    # Encode as JPEG (faster than PNG, fine for detection)
-    img_pil = Image.fromarray(image_rgb)
-    buf = io.BytesIO()
-    img_pil.save(buf, format="JPEG")
-    image_bytes = buf.getvalue()
-
-    response = client.models.generate_content(
-        model="gemini-robotics-er-1.5-preview",
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-            prompt,
-        ],
-        config=types.GenerateContentConfig(
-            temperature=0.5,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-        ),
-    )
-
-    # Parse JSON (strip markdown fences if present)
-    raw = response.text.strip()
-    print(f"  Gemini ER raw response: {raw}")
-    json_match = re.search(r"```json?\s*(.*?)\s*```", raw, re.DOTALL)
-    result = json.loads(json_match.group(1) if json_match else raw)
-
-    if "point" not in result:
-        print("  ❌ No 'point' in Gemini ER response")
-        return None
-
-    y_norm, x_norm = result["point"]
-    x_px = x_norm / 1000 * w
-    y_px = y_norm / 1000 * h
-    print(f"  Gemini ER detected target at pixel ({x_px:.1f}, {y_px:.1f})")
-    return (x_px, y_px)
-
-
 def pixel_to_world_3d(
     pixel_xy: tuple[float, float],
     model,
