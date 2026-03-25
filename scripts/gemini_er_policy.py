@@ -145,8 +145,8 @@ normalized to 0-1000."""
     detections = _parse_json(resp1)
 
     # Extract block and target coordinates
-    block_det = next((d for d in detections if "red" in d["label"].lower()), detections[0])
-    target_det = next((d for d in detections if "blue" in d["label"].lower()), detections[-1])
+    block_det = next((d for d in detections if "block" in d["label"].lower()), detections[0])
+    target_det = next((d for d in detections if "target" in d["label"].lower()), detections[-1])
     block_y, block_x = block_det["point"]
     target_y, target_x = target_det["point"]
     print(f"  Block: ({block_x}, {block_y})  Target: ({target_x}, {target_y})")
