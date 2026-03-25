@@ -220,6 +220,8 @@ smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitte
 prev_waypoint_idx = -1
 waypoint_stall_steps = 0
 WAYPOINT_STALL_LIMIT = 500  # ~1s at 0.002s timestep
+gripper_wait_steps = 0
+GRIPPER_WAIT_LIMIT = 100  # Iters for gripper to open/close before moving on
 
 while True:
     # 1. Render cameras
@@ -266,7 +268,10 @@ while True:
             dist_to_wp = np.linalg.norm(current_xyz - wp_xyz)
             WAYPOINT_THRESHOLD = 0.02  # 2cm
             advance = False
-            if dist_to_wp < WAYPOINT_THRESHOLD:
+            if gripper_wait_steps > 0:
+                # Waiting for gripper to finish actuating
+                gripper_wait_steps -= 1
+            elif dist_to_wp < WAYPOINT_THRESHOLD:
                 advance = True
             else:
                 waypoint_stall_steps += 1
@@ -274,9 +279,13 @@ while True:
                     print(f"  ⚠️  Stalled at waypoint {waypoint_idx} (dist={dist_to_wp:.3f}m after {waypoint_stall_steps} steps), skipping")
                     advance = True
             if advance and waypoint_idx < len(waypoint_queue) - 1:
+                prev_grip = wp_grip
                 waypoint_idx += 1
                 waypoint_stall_steps = 0
                 wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
+                # If gripper state changed, pause before moving
+                if wp_grip != prev_grip:
+                    gripper_wait_steps = GRIPPER_WAIT_LIMIT
             if waypoint_idx != prev_waypoint_idx:
                 n = len(waypoint_queue)
                 print(f"  >>> Waypoint {waypoint_idx}/{n}: target=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}] gripper={wp_grip:.1f}")
