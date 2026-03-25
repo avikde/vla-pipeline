@@ -23,8 +23,8 @@ import gemini_er_policy as gemini_er
 # Parse arguments
 parser = argparse.ArgumentParser(description='WidowX Robot Demo')
 parser.add_argument('--verbose', '-v', action='store_true', help='Print per-step action/alignment info')
-parser.add_argument('-p', '--planner', choices=['xvla', 'hardcoded', 'gemini-er'],
-                    default='xvla', help='Action source: xvla (default), hardcoded, or gemini-er')
+parser.add_argument('-p', '--planner', choices=['xvla','hardcoded','gemini-er'],
+                    default='gemini-er', help='Action source')
 parser.add_argument('--dry-run', '-d', action='store_true',
                     help='Visualize trajectory dots only; skip IK and control application')
 parser.add_argument('--step-size', type=float, default=0.02,

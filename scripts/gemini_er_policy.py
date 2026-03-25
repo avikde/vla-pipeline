@@ -165,8 +165,8 @@ def move(x, y, high):
 def setGripperState(opened):
   # Opens the gripper if opened set to true, otherwise closes the gripper
 
-Perform a pick and place operation where you pick up the red block at
-normalized coordinates ({block_x}, {block_y}) and place it on the blue
+Perform a pick and place operation where you pick up the block at
+normalized coordinates ({block_x}, {block_y}) and place it on the
 target at normalized coordinates ({target_x}, {target_y}).
 Provide the sequence of function calls as a JSON list of objects, where
 each object has a "function" key (the function name) and an "args" key
