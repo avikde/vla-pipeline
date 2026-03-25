@@ -2,98 +2,99 @@
 
 Vision-Language-Action model integration with low-level control using MuJoCo simulation.
 
-Software used:
-- **PyTorch 2.10.0 with CUDA 12.8** (need CUDA 12.8 for Blackwell/sm_120 support)
-- LeRobot 0.4.3 with X-VLA
-- MuJoCo
+Software: PyTorch 2.10.0 with CUDA 12.8, LeRobot 0.4.3 with X-VLA, MuJoCo.
 
-<!-- - JAX 0.9.0.1 with CUDA 12 support + MJX (**TODO**) -->
+Blog posts for context:
+- https://www.avikde.me/p/the-architecture-behind-end-to-end
+- https://www.avikde.me/p/debugging-as-architecture-insight
 
 ## Jupyter Notebook (start here)
 
-👇 X-VLA with WidowX arm - prompt to trajectory visualization
+X-VLA with WidowX arm - prompt to trajectory visualization:
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/avikde/vla-pipeline/blob/main/xvla_widowx_vis_traj.ipynb)
 
 ## Local Installation
-
-### Clone Repository
 
 ```sh
 git clone https://github.com/avikde/vla-pipeline.git
 cd vla-pipeline
 ```
 
-If using **Linux / WSL**, install these system dependencies. Skip if **Windows**:
-
+Linux/WSL system dependencies:
 ```bash
-# 2
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3 python3-venv python3-pip build-essential git
 ```
 
-Mac
-```sh
-brew install bazel
-```
+Mac: `brew install bazel`
 
-### Python dependencies
-
+Python setup:
 ```bash
-# Create Python Virtual Environment
 python3.13 -m venv venv
 source venv/bin/activate
-
-# Install JAX with CUDA support:
 pip install --upgrade pip
-# pip install "jax[cuda12]"
-
-# Install MuJoCo and MJX (GPU-accelerated physics)
-pip install mujoco # mujoco-mjx
-
-# For faster model downloads
-pip install huggingface_hub hf_xet
-
-# Install LeRobot with VLAs
-# pip install "lerobot[smolvla]"
-pip install "lerobot[xvla]"
-```
-
-**CUDA support:** The LeRobot scripts install `torch 2.7.1` and `torchvision 0.22`, and with CPU support only. To utilize an NVIDIA GPU, we need to install torch with CUDA support. For my RTX 5070 Ti Blackwell GPU, I needed CUDA 12.8 for sm120 support. This should be run *after* the LeRobot packages.
-```bash
+pip install mujoco huggingface_hub hf_xet "lerobot[xvla]"
+# For NVIDIA GPU (run after lerobot):
 pip uninstall torch torchvision -y && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
-### Verify Installation
+On Windows, use `python` not `python3`. On Mac, use `mjpython`.
 
-
-```sh
-# Torch: should say "2.10.0+cu128" and  "True" for CUDA access
+Verify:
+```bash
 python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-# LeRobot
 python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 ```
 
-<!--
-Check JAX GPU access (**Skip for now**)
-```sh
-python -c "import jax; print('JAX backend:', jax.default_backend()); print('JAX devices:', jax.devices())"
+## Running
+
+```bash
+# Main demo (opens MuJoCo viewer)
+python scripts/demo_widowx.py
+
+# Flags:
+# -p / --planner        Action source: xvla (default), hardcoded, gemini-er
+# -v / --verbose        Per-step debug output
+# -d / --dry-run        Visualize trajectory without running IK/control
+# -f / --free-cam       Free orbit camera (default: locked to primary camera)
+# --step-size 0.005     Reference policy movement speed (m/step)
+# --kp 10               Override proportional gain for arm actuators
 ```
--->
 
-## Scripts to run
+## Architecture
 
-### Run X-VLA Inference Demo
+**Inference loop** (`demo_widowx.py`):
+1. Render `primary` camera at 4:3 (342×256), squish to 256×256 to match BridgeData distortion; second image is black (BridgeData's cam2 is often black)
+2. Pack images + 8D proprioceptive state (XYZ, RPY, pad, gripper) + language tokens into observation
+3. Run X-VLA → 20D action vector (2 timesteps × 10D)
+4. Decode each 10D slice: XYZ target + 6D rotation + gripper value
+5. In dry-run mode, visualize the EE trajectory
+6. In non-dry-run mode, close the control loop:
+  a. Feed EE target to Jacobian IK (`widowx_control.py`) → joint angles → MuJoCo actuators
+  b. To be implemented
 
-```sh
-python scripts/demo_xvla_widowx.py
+**Key modules:**
+- `scripts/xvla_policy.py` — policy loading, observation building, action decoding, MuJoCo utilities (EE pose, cube position). Also contains `generate_non_vla_reference()` fallback reach-and-grasp policy.
+- `scripts/widowx_control.py` — `WidowXController` class: damped least-squares Jacobian IK, 6-DOF or position-only mode, gripper mapping, joint limit enforcement.
+- `scripts/gemini_er_policy.py` — Gemini ER object detection + MuJoCo camera calibration (pixel→3D via ray-plane intersection).
+- `assets/widowx/` — MuJoCo XML models; `widowx_vision_scene.xml` is the primary scene (wooden table, `primary` camera, `third_person` debug camera).
+
+**Action representation (EE6D):** 10D per timestep = [x, y, z, r1x, r1y, r1z, r2x, r2y, r2z, gripper]. The 6D rotation uses two columns of the rotation matrix (third reconstructed via cross product).
+
+**Model checkpoint:** `lerobot/xvla-widowx` (HuggingFace, fine-tuned on BridgeData). Downloaded automatically on first run.
+
+## Gemini ER
+
+```shell
+pip install google-genai
 ```
 
-This demonstrates X-VLA's modular soft prompt architecture using the WidowX robot with the `lerobot/xvla-widowx` checkpoint (fine-tuned on BridgeData).
+Get an API key and set the `GEMINI_API_KEY` environment variable as described https://ai.google.dev/gemini-api/docs/api-key.
+
+Use `-p gemini-er` to detect the block via Gemini ER vision, project to 3D, and execute a reach-and-grasp trajectory.
 
 ## Acknowledgements
 
-<!-- - **SO-101 Robot Models:** URDF and MuJoCo XML files sourced from [TheRobotStudio/SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100)
-- **SmolVLA Model:** Pre-trained model from [HuggingFace LeRobot](https://huggingface.co/lerobot/smolvla_base) -->
 - **LeRobot Framework:** Open-source robotics ML framework by HuggingFace
 - **WidowX model:** From [google-deepmind/mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie/tree/main/trossen_wx250s)

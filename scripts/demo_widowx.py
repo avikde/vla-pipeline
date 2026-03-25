@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
 """
-X-VLA with WidowX Robot Demo - DEBUG VERSION
+WidowX Robot Demo
 
-Run with --no-vla to skip model loading and use a reference policy instead.
-Run with --verbose to print per-step action/alignment info to stdout.
-Run with --step-size 0.005 to slow the reference policy.
-Run with --kp 10 to lower arm position control gains.
+Uses -p/--planner to select the action source:
+  xvla       Load X-VLA model for end-to-end inference (default)
+  hardcoded  Reach-and-grasp using ground-truth block position
+  gemini-er  Detect block via Gemini ER, project to 3D, then reach-and-grasp
 """
 
 import argparse
+import sys
+
 import mujoco
 import mujoco.viewer as mj_viewer
 import numpy as np
 import torch
 from PIL import Image
-import sys
 
-import xvla_policy as xvla
 import widowx_control as ctrl
+import gemini_er_policy as gemini_er
 
 # Parse arguments
-parser = argparse.ArgumentParser(description='X-VLA with WidowX Robot - Debug')
+parser = argparse.ArgumentParser(description='WidowX Robot Demo')
 parser.add_argument('--verbose', '-v', action='store_true', help='Print per-step action/alignment info')
-parser.add_argument('--no-vla', '-n', action='store_true', help='Skip VLA loading; use reference policy instead')
+parser.add_argument('-p', '--planner', choices=['xvla','hardcoded','gemini-er'],
+                    default='gemini-er', help='Action source')
 parser.add_argument('--dry-run', '-d', action='store_true',
                     help='Visualize trajectory dots only; skip IK and control application')
 parser.add_argument('--step-size', type=float, default=0.02,
@@ -33,6 +35,8 @@ parser.add_argument('--up', action='store_true',
                     help='Reference policy: target 0.2m above initial EE (ignore cube); tests IK/control in isolation')
 parser.add_argument('-f', '--free-cam', action='store_true',
                     help='Use free orbit camera instead of locking to the primary camera')
+parser.add_argument('-s', '--save', action='store_true',
+                    help='Save primary camera recording to demo.mp4')
 args = parser.parse_args()
 
 # Precompute trajectory marker colors (green -> red gradient, 10 markers)
@@ -42,15 +46,21 @@ for i in range(NUM_MARKERS):
     fade = i / max(1, NUM_MARKERS - 1)
     MARKER_COLORS.append(np.array([fade, 1.0 - fade, 0.0, 0.6], dtype=np.float32))
 
-# Load X-VLA policy (skipped in --no-vla mode)
+# Fixed downward-facing gripper orientation for gemini-er:
+# Body X (finger axis) → world -Z, Body Y → world Y, Body Z → world X
+# Stored as [col0, col1] to match ee6d_to_pos_rot's expected layout.
+GRASP_ROT6D = np.array([0, 0, -1, 0, 1, 0], dtype=np.float32)
+
+# Load policy + planner-specific imports
 policy = tokenizer = language_tokens = language_attention_mask = None
 device = "cpu"
 
 print("=" * 60)
-print("X-VLA WidowX Demo - DEBUG MODE")
+print(f"WidowX Demo — planner: {args.planner}")
 print("=" * 60)
 
-if not args.no_vla:
+if args.planner == 'xvla':
+    import xvla_policy as xvla
     print("\n[1/7] Loading X-VLA WidowX policy...")
     try:
         policy, tokenizer, device = xvla.load_policy("lerobot/xvla-widowx")
@@ -59,7 +69,8 @@ if not args.no_vla:
         print('  pip install "lerobot[xvla]"')
         sys.exit(1)
 else:
-    print("\n[1/7] Skipping VLA load (--no-vla). Using reference policy.")
+    import xvla_policy as xvla
+    print(f"\n[1/7] Skipping VLA load (planner={args.planner}).")
 
 # Load WidowX MuJoCo model
 print("\n[2/7] Loading WidowX MuJoCo model...")
@@ -136,10 +147,30 @@ for _ in range(100):
     mujoco.mj_step(model, data)
 print("  ✓ Physics settled")
 
+# Gemini ER plan (once, before main loop)
+waypoint_queue: list[tuple[np.ndarray, float]] = []
+waypoint_idx = 0
+if args.planner == 'gemini-er':
+    print("\n[5.5/7] Running Gemini ER detect + plan...")
+    detection_img = render_camera('primary')
+    plan_steps = gemini_er.detect_and_plan(
+        detection_img, model, data, 'primary',
+        render_size=(RENDER_WIDTH, RENDER_HEIGHT),
+        vla_size=(VLA_WIDTH, VLA_HEIGHT),
+    )
+    waypoint_queue = gemini_er.plan_to_waypoints(
+        plan_steps, model, data, 'primary',
+        render_size=(RENDER_WIDTH, RENDER_HEIGHT),
+        vla_size=(VLA_WIDTH, VLA_HEIGHT),
+    )
+    print(f"  Generated {len(waypoint_queue)} waypoints:")
+    for i, (wp_xyz, wp_grip) in enumerate(waypoint_queue):
+        print(f"    [{i}] xyz=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}]  gripper={wp_grip:.1f}")
+
 # Get initial state
-initial_ee_pos, _ = xvla.get_ee_pose(model, data)
-cube_pos = xvla.get_cube_position(model, data)
-initial_ee_state = xvla.get_ee_state_8d(model, data)
+initial_ee_pos, _ = ctrl.get_ee_pose(model, data)
+cube_pos = ctrl.get_body_position(model, data)
+initial_ee_state = ctrl.get_ee_state_8d(model, data)
 
 print("\n  📍 Initial State:")
 print(f"     - EE position: [{initial_ee_pos[0]:.3f}, {initial_ee_pos[1]:.3f}, {initial_ee_pos[2]:.3f}]")
@@ -151,10 +182,8 @@ if cube_pos is not None:
     print(f"     - Distance to cube: {np.linalg.norm(initial_ee_pos - cube_pos):.3f}m")
 
 # Build controller (allocates scratch MjData + caches IDs once).
-# Orientation IK disabled: the no-VLA reference keeps current Euler angles which
-# causes wrist_rotate to spin through singularities. Position-only IK is sufficient
-# for validating reach behaviour.
-controller = ctrl.WidowXController(model, use_orientation=False)
+# Orientation IK enabled for xvla/gemini-er; disabled for hardcoded to avoid singularities.
+controller = ctrl.WidowXController(model, use_orientation=(args.planner != 'hardcoded'))
 # Home arm joints used as fixed null-space reference to prevent IK from drifting
 # into a drooped configuration branch.
 home_null_ref = model.keyframe('home').ctrl[:6].copy()
@@ -172,6 +201,10 @@ else:
     viewer.cam.fixedcamid = model.camera('primary').id
 print(f"  ✓ Viewer launched  |  --verbose={'on' if args.verbose else 'off'}  |  Close window to stop.")
 
+# Show waypoint markers for Gemini ER plan
+if waypoint_queue and gemini_er is not None:
+    gemini_er.visualize_waypoints(viewer, waypoint_queue)
+
 # Simulation loop
 print("\n[7/7] Running inference loop...")
 print("=" * 60)
@@ -186,6 +219,12 @@ step = 0
 cached_action_targets = []
 camera_snapshot_saved = False
 smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitter
+recorded_frames: list[np.ndarray] = []
+prev_waypoint_idx = -1
+waypoint_stall_steps = 0
+WAYPOINT_STALL_LIMIT = 500  # ~1s at 0.002s timestep
+gripper_wait_steps = 0
+GRIPPER_WAIT_LIMIT = 100  # Iters for gripper to open/close before moving on
 
 while True:
     # 1. Render cameras
@@ -196,8 +235,8 @@ while True:
 
     # 2. Build observation and run inference
     actions_np = None
-    ee_state_8d = xvla.get_ee_state_8d(model, data)
-    cube_pos_now = xvla.get_cube_position(model, data)
+    ee_state_8d = ctrl.get_ee_state_8d(model, data)
+    cube_pos_now = ctrl.get_body_position(model, data)
 
     if policy is not None:
         observation = xvla.build_observation(
@@ -219,28 +258,86 @@ while True:
         queue_size = 0
         is_new_chunk = True
         current_xyz = ee_state_8d[0:3]
-        rot6d = xvla.rotation_matrix_to_6d(xvla.euler_to_rotation_matrix(*ee_state_8d[3:6]))
+        rot6d = ctrl.rotation_matrix_to_6d(ctrl.euler_to_rotation_matrix(*ee_state_8d[3:6]))
+
         if args.up:
             # Fixed target 0.2m above initial EE; ignores cube and current orientation drift.
             goal_xyz = initial_ee_pos + np.array([0.0, 0.0, 0.2])
-            goal_rot6d = xvla.rotation_matrix_to_6d(np.eye(3))
+            goal_rot6d = ctrl.rotation_matrix_to_6d(np.eye(3))
+            goal_gripper = 1.0
+        elif waypoint_queue and waypoint_idx < len(waypoint_queue):
+            # Gemini ER waypoint sequencing — pass target directly to IK
+            wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
+            dist_to_wp = np.linalg.norm(current_xyz - wp_xyz)
+            WAYPOINT_THRESHOLD = 0.02  # 2cm
+            advance = False
+            if gripper_wait_steps > 0:
+                # Waiting for gripper to finish actuating
+                gripper_wait_steps -= 1
+            elif dist_to_wp < WAYPOINT_THRESHOLD:
+                advance = True
+            else:
+                waypoint_stall_steps += 1
+                if waypoint_stall_steps >= WAYPOINT_STALL_LIMIT:
+                    print(f"  ⚠️  Stalled at waypoint {waypoint_idx} (dist={dist_to_wp:.3f}m after {waypoint_stall_steps} steps), skipping")
+                    advance = True
+            if advance and waypoint_idx < len(waypoint_queue) - 1:
+                prev_grip = wp_grip
+                waypoint_idx += 1
+                waypoint_stall_steps = 0
+                wp_xyz, wp_grip = waypoint_queue[waypoint_idx]
+                # If gripper state changed, pause before moving
+                if wp_grip != prev_grip:
+                    gripper_wait_steps = GRIPPER_WAIT_LIMIT
+            if waypoint_idx != prev_waypoint_idx:
+                n = len(waypoint_queue)
+                print(f"  >>> Waypoint {waypoint_idx}/{n}: target=[{wp_xyz[0]:.3f}, {wp_xyz[1]:.3f}, {wp_xyz[2]:.3f}] gripper={wp_grip:.1f}")
+                prev_waypoint_idx = waypoint_idx
+
+            # Build 20D action directly from waypoint (skip generate_reference_action)
+            actions_np = np.zeros(20, dtype=np.float32)
+            actions_np[0:3] = wp_xyz
+            actions_np[3:9] = GRASP_ROT6D
+            actions_np[9] = wp_grip
+            actions_np[10:13] = wp_xyz
+            actions_np[13:19] = GRASP_ROT6D
+            actions_np[19] = wp_grip
+
+            goal_xyz = wp_xyz
+            goal_rot6d = GRASP_ROT6D
+            goal_gripper = wp_grip
         else:
+            # Hardcoded: use ground-truth block position
             block_pos = cube_pos_now if cube_pos_now is not None else np.zeros(3)
-            actions_np = xvla.generate_non_vla_reference(ee_state_8d, [img, img2], block_pos, step_size=args.step_size)
             goal_xyz = block_pos
             goal_rot6d = rot6d
-        cached_action_targets = []
-        for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
-            wp = np.zeros(10, dtype=np.float32)
-            wp[0:3] = current_xyz + (goal_xyz - current_xyz) * t
-            wp[3:9] = goal_rot6d
-            wp[9]   = 1.0  # gripper open
-            cached_action_targets.append(wp)
+            goal_gripper = 1.0
+
+        # Generate action toward goal (for --up and hardcoded; gemini-er sets actions_np above)
+        if actions_np is None:
+            actions_np = ctrl.generate_reference_action(
+                ee_state_8d, goal_xyz, step_size=args.step_size
+            )
+            if actions_np is not None:
+                actions_np[3:9] = goal_rot6d
+                actions_np[13:19] = goal_rot6d
+                actions_np[9] = goal_gripper
+                actions_np[19] = goal_gripper
+
+        # Interpolated trajectory dots (skip for gemini-er — waypoint markers suffice)
+        if not waypoint_queue:
+            cached_action_targets = []
+            for t in np.linspace(1 / NUM_MARKERS, 1, NUM_MARKERS):
+                wp = np.zeros(10, dtype=np.float32)
+                wp[0:3] = current_xyz + (goal_xyz - current_xyz) * t
+                wp[3:9] = goal_rot6d
+                wp[9]   = goal_gripper
+                cached_action_targets.append(wp)
 
     # 3. Per-step debug output (--verbose only)
     if args.verbose:
-        current_ee_pos, current_ee_rot = xvla.get_ee_pose(model, data)
-        xyz_1, rot6d_1, gripper_1 = xvla.decode_ee6d_action(actions_np) if actions_np is not None else (None, None, 0.0)
+        current_ee_pos, current_ee_rot = ctrl.get_ee_pose(model, data)
+        xyz_1, rot6d_1, gripper_1 = ctrl.decode_ee6d_action(actions_np) if actions_np is not None else (None, None, 0.0)
 
         print(f"\n--- Step {step} {'(NEW CHUNK) ' if is_new_chunk else ''}queue={queue_size} ---")
         print(f"  Proprio:    {fmt_vec(ee_state_8d)}")
@@ -280,24 +377,28 @@ while True:
 
     # Post-step: compare actual EE vs IK target to diagnose servo tracking
     if args.verbose and ik_target_pos is not None:
-        actual_ee_pos, _ = xvla.get_ee_pose(model, data)
+        actual_ee_pos, _ = ctrl.get_ee_pose(model, data)
         servo_err = np.linalg.norm(actual_ee_pos - ik_target_pos)
         print(f"  Post-step EE: {fmt_vec(actual_ee_pos)}  (target: {fmt_vec(ik_target_pos)})  servo_err={fmt(servo_err)}m")
         print(f"  qpos:  {fmt_vec(data.qpos[:6])}")
         print(f"  ctrl:  {fmt_vec(data.ctrl[:6])}")
 
     # 5. Viewer sync + trajectory dots (xyz only for rendering)
-    viewer.user_scn.ngeom = 0
+    #    Re-draw waypoint markers first (if any), then trajectory dots after.
+    geom_idx = 0
+    if waypoint_queue and gemini_er is not None:
+        gemini_er.visualize_waypoints(viewer, waypoint_queue, current_idx=waypoint_idx)
+        geom_idx = viewer.user_scn.ngeom
     for i, target in enumerate(cached_action_targets):
         mujoco.mjv_initGeom(
-            viewer.user_scn.geoms[i],
+            viewer.user_scn.geoms[geom_idx + i],
             type=mujoco.mjtGeom.mjGEOM_SPHERE,
             size=[0.01, 0, 0],
             pos=target[:3].astype(np.float64),
             mat=np.eye(3).flatten(),
             rgba=MARKER_COLORS[i],
         )
-    viewer.user_scn.ngeom = len(cached_action_targets)
+    viewer.user_scn.ngeom = geom_idx + len(cached_action_targets)
 
     # Save camera snapshot once after first trajectory is available
     if not camera_snapshot_saved and cached_action_targets:
@@ -308,6 +409,9 @@ while True:
         print("  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True
 
+    if args.save:
+        recorded_frames.append(render_camera('primary'))
+
     viewer.sync()
     if not viewer.is_running():
         print(f"\nViewer closed at step {step}")
@@ -316,4 +420,10 @@ while True:
     step += 1
 
 viewer.close()
+
+if args.save and recorded_frames:
+    import imageio.v3 as iio
+    iio.imwrite("demo.mp4", np.stack(recorded_frames), fps=30)
+    print(f"Saved recording → demo.mp4 ({len(recorded_frames)} frames)")
+
 print("\nDemo complete!")
