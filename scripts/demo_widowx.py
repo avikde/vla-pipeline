@@ -220,6 +220,9 @@ cached_action_targets = []
 camera_snapshot_saved = False
 smoothed_gripper = 1.0  # start open; EMA-filtered to suppress VLA gripper jitter
 recorded_frames: list[np.ndarray] = []
+SIM_DT = 0.002  # from XML timestep
+RECORD_FPS = 30
+RECORD_DECIMATION = max(1, round(1.0 / (SIM_DT * RECORD_FPS)))  # =17 → ~29.4fps
 prev_waypoint_idx = -1
 waypoint_stall_steps = 0
 WAYPOINT_STALL_LIMIT = 500  # ~1s at 0.002s timestep
@@ -409,7 +412,7 @@ while True:
         print("  Saved camera snapshot → camera_views.png")
         camera_snapshot_saved = True
 
-    if args.save:
+    if args.save and step % RECORD_DECIMATION == 0:
         recorded_frames.append(render_camera('primary'))
 
     viewer.sync()
@@ -423,7 +426,8 @@ viewer.close()
 
 if args.save and recorded_frames:
     import imageio.v3 as iio
-    iio.imwrite("demo.mp4", np.stack(recorded_frames), fps=30)
+    actual_fps = 1.0 / (SIM_DT * RECORD_DECIMATION)
+    iio.imwrite("demo.mp4", np.stack(recorded_frames), fps=actual_fps)
     print(f"Saved recording → demo.mp4 ({len(recorded_frames)} frames)")
 
 print("\nDemo complete!")
