@@ -7,14 +7,9 @@ Software: PyTorch 2.10.0 with CUDA 12.8, LeRobot 0.4.3 with X-VLA, MuJoCo.
 Blog posts for context:
 - https://www.avikde.me/p/the-architecture-behind-end-to-end
 - https://www.avikde.me/p/debugging-as-architecture-insight
+- https://open.substack.com/pub/minpower/p/a-coding-agent-equivalent-for-robotics?r=5vzx85&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true
 
-## Jupyter Notebook (start here)
-
-X-VLA with WidowX arm - prompt to trajectory visualization:
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/avikde/vla-pipeline/blob/main/xvla_widowx_vis_traj.ipynb)
-
-## Local Installation
+## Install
 
 ```sh
 git clone https://github.com/avikde/vla-pipeline.git
@@ -26,8 +21,6 @@ Linux/WSL system dependencies:
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3 python3-venv python3-pip build-essential git
 ```
-
-Mac: `brew install bazel`
 
 Python setup:
 ```bash
@@ -54,13 +47,15 @@ python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 python scripts/demo_widowx.py
 
 # Flags:
-# -p / --planner        Action source: xvla (default), hardcoded, gemini-er
+# -p / --planner        Action source: xvla, hardcoded, gemini-er (default)
 # -v / --verbose        Per-step debug output
 # -d / --dry-run        Visualize trajectory without running IK/control
 # -f / --free-cam       Free orbit camera (default: locked to primary camera)
 # --step-size 0.005     Reference policy movement speed (m/step)
 # --kp 10               Override proportional gain for arm actuators
 ```
+
+For `-p gemini-er`, get an API key and set the `GEMINI_API_KEY` environment variable as described https://ai.google.dev/gemini-api/docs/api-key.
 
 ## Architecture
 
@@ -84,15 +79,11 @@ python scripts/demo_widowx.py
 
 **Model checkpoint:** `lerobot/xvla-widowx` (HuggingFace, fine-tuned on BridgeData). Downloaded automatically on first run.
 
-## Gemini ER
+## Jupyter Notebook
 
-```shell
-pip install google-genai
-```
+X-VLA with WidowX arm - prompt to trajectory visualization:
 
-Get an API key and set the `GEMINI_API_KEY` environment variable as described https://ai.google.dev/gemini-api/docs/api-key.
-
-Use `-p gemini-er` to detect the block via Gemini ER vision, project to 3D, and execute a reach-and-grasp trajectory.
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/avikde/vla-pipeline/blob/main/xvla_widowx_vis_traj.ipynb)
 
 ## Acknowledgements
 
