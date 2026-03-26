@@ -247,6 +247,13 @@ while True:
         )
         actions_np = xvla.select_action(policy, observation, device)
 
+        # Override X-VLA orientation with fixed downward-facing grasp.
+        # The model's 6D rotation outputs are unreliable (BridgeData is nearly
+        # always pointing down, so the checkpoint never learned orientation).
+        if len(actions_np) >= 20:
+            actions_np[3:9] = GRASP_ROT6D # ctrl.interbotix_rot6d_to_mujoco(actions_np[3:9])
+            actions_np[13:19] = GRASP_ROT6D # ctrl.interbotix_rot6d_to_mujoco(actions_np[13:19])
+
         action_queue = policy._queues.get("action", [])
         queue_size = len(action_queue)
         is_new_chunk = queue_size == policy.config.chunk_size - 1
