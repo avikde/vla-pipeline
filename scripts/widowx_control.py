@@ -118,8 +118,30 @@ def euler_to_rotation_matrix(roll: float, pitch: float, yaw: float) -> np.ndarra
 
 
 def rotation_matrix_to_6d(rot_mat: np.ndarray) -> np.ndarray:
-    """3×3 rotation matrix → 6D representation (first two columns, flattened)."""
-    return rot_mat[:, :2].flatten()
+    """3×3 rotation matrix → 6D representation (first two columns, concatenated).
+
+    Layout: [col0_x, col0_y, col0_z, col1_x, col1_y, col1_z]
+    This matches the column-major layout expected by ee6d_to_pos_rot.
+    """
+    return np.concatenate([rot_mat[:, 0], rot_mat[:, 1]])
+
+
+def interbotix_rot6d_to_mujoco(rot6d: np.ndarray) -> np.ndarray:
+    """Convert a 6D rotation from Interbotix (BridgeData) frame to MuJoCo body frame.
+
+    X-VLA outputs rotations in the Interbotix convention (matching its training data).
+    The IK solver compares against raw MuJoCo xmat, so we must undo the
+    _MUJOCO_TO_INTERBOTIX transform: R_mujoco = R_interbotix @ M^T.
+    """
+    a1 = rot6d[0:3]
+    a2 = rot6d[3:6]
+    b1 = a1 / (np.linalg.norm(a1) + 1e-8)
+    b2 = a2 - np.dot(b1, a2) * b1
+    b2 = b2 / (np.linalg.norm(b2) + 1e-8)
+    b3 = np.cross(b1, b2)
+    rot_interbotix = np.column_stack([b1, b2, b3])
+    rot_mujoco = rot_interbotix @ _MUJOCO_TO_INTERBOTIX.T
+    return rotation_matrix_to_6d(rot_mujoco)
 
 
 # ---------------------------------------------------------------------------

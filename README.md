@@ -34,7 +34,7 @@ Python setup:
 python3.13 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-pip install mujoco huggingface_hub hf_xet "lerobot[xvla]"
+pip install mujoco huggingface_hub hf_xet "lerobot[xvla]" google-genai
 # For NVIDIA GPU (run after lerobot):
 pip uninstall torch torchvision -y && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
