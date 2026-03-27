@@ -1,281 +1,253 @@
 /**
- * Main entry point: ties together MuJoCo scene, Gemini ER policy, and IK solver.
+ * WidowX + Gemini ER pick-and-place demo.
  *
- * Port of demo_widowx.py -p gemini-er flow.
+ * Entry point: initializes MuJoCo WASM + Three.js, wires up UI,
+ * runs Gemini ER detection/planning, and animates the arm via IK.
  */
 
-import { initScene } from './mujoco-scene.js';
-import { WidowXController } from './ik-solver.js';
-import { detectAndPlan, planToWaypoints, captureSceneImage } from './gemini-er.js';
-import { vec3, sub, norm } from './math-utils.js';
+// All module imports are dynamic (inside init) to avoid saturating
+// HTTP/1.1 connections during local dev. On GitHub Pages (HTTP/2) this
+// wouldn't matter, but it doesn't hurt either.
 
-// --- Constants matching demo_widowx.py ---
-const GRASP_ROT6D = new Float32Array([0, 0, -1, 0, 1, 0]);
-const WAYPOINT_THRESHOLD = 0.02; // 2cm
-const WAYPOINT_STALL_LIMIT = 500;
-const GRIPPER_WAIT_LIMIT = 100;
-const GRIPPER_EMA_ALPHA = 0.15;
-const SIM_STEPS_PER_FRAME = 10; // ~0.002s timestep * 10 = 0.02s per frame at 60fps
-
-// --- DOM elements ---
-const canvas = document.getElementById('viewer');
+// --- UI elements ---
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
-const apiKeyInput = document.getElementById('api-key');
+const logDiv = document.getElementById('log');
 const btnRun = document.getElementById('btn-run');
 const btnPrebaked = document.getElementById('btn-prebaked');
+const apiKeyInput = document.getElementById('api-key');
 const chkFreeCam = document.getElementById('chk-free-cam');
-const logDiv = document.getElementById('log');
-const waypointListDiv = document.getElementById('waypoint-list');
 const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
 const statusEe = document.getElementById('status-ee');
+const waypointList = document.getElementById('waypoint-list');
 
 // --- Logging ---
-function log(msg, level = 'info') {
+function log(msg, level = '') {
+  console.log(msg);
   const el = document.createElement('div');
-  el.className = level;
   el.textContent = msg;
+  if (level) el.className = level;
   logDiv.appendChild(el);
   logDiv.scrollTop = logDiv.scrollHeight;
 }
 
 // --- State ---
-let scene = null;
-let controller = null;
+let mujocoScene = null;
+let ikController = null;
 let waypoints = [];
-let waypointIdx = 0;
-let prevWaypointIdx = -1;
-let waypointStallSteps = 0;
-let gripperWaitSteps = 0;
-let smoothedGripper = 1.0;
-let step = 0;
+let currentWpIdx = 0;
+let simStep = 0;
 let running = false;
-let simReady = false;
+let animationId = null;
 
-// --- Initialization ---
+// IK convergence: steps per waypoint before moving on
+const STEPS_PER_WAYPOINT = 200;
+const PHYSICS_STEPS_PER_FRAME = 5;
+
+// --- Restore API key from localStorage ---
+const savedKey = localStorage.getItem('gemini-api-key');
+if (savedKey) apiKeyInput.value = savedKey;
+apiKeyInput.addEventListener('input', () => {
+  localStorage.setItem('gemini-api-key', apiKeyInput.value.trim());
+});
+
+// --- Init ---
+// Lazy-loaded modules (populated in init)
+let initScene, WidowXController, detectAndPlan, planToWaypoints, captureSceneImage;
+let eulerToRotationMatrix, rotationMatrixTo6d;
+
 async function init() {
   try {
-    scene = await initScene(canvas, (msg) => {
-      loadingText.textContent = msg;
-    });
-    simReady = true;
+    // Load modules sequentially to avoid HTTP/1.1 connection saturation
+    log('Loading modules...', 'info');
+    const sceneModule = await import('./mujoco-scene.js');
+    initScene = sceneModule.initScene;
+    const ikModule = await import('./ik-solver.js');
+    WidowXController = ikModule.WidowXController;
+    const geminiModule = await import('./gemini-er.js');
+    detectAndPlan = geminiModule.detectAndPlan;
+    planToWaypoints = geminiModule.planToWaypoints;
+    captureSceneImage = geminiModule.captureSceneImage;
+    const mathModule = await import('./math-utils.js');
+    eulerToRotationMatrix = mathModule.eulerToRotationMatrix;
+    rotationMatrixTo6d = mathModule.rotationMatrixTo6d;
+    log('Modules loaded.', 'info');
+
+    mujocoScene = await initScene(
+      document.getElementById('viewer'),
+      (msg) => {
+        loadingText.textContent = msg;
+        log(msg, 'info');
+      },
+    );
+
+    ikController = new WidowXController(mujocoScene.mj, mujocoScene.model);
+
+    // Initial render
+    mujocoScene.updateVisuals();
+    mujocoScene.render();
+
     loadingOverlay.style.display = 'none';
     statusSim.textContent = 'Sim: ready';
     btnRun.disabled = false;
-    log('MuJoCo + Three.js initialized', 'success');
-
-    // Initial render
-    scene.updateVisuals();
-    scene.render();
+    log('Scene loaded. Enter API key and click Run, or use cached plan.', 'success');
   } catch (err) {
     loadingText.textContent = `Error: ${err.message}`;
     log(`Init failed: ${err.message}`, 'error');
+    log(`Stack: ${err.stack}`, 'error');
     console.error(err);
   }
 }
 
-// --- Run Gemini ER + simulation loop ---
-async function run(apiKey) {
-  if (!simReady || running) return;
-  running = true;
+// --- Build a default 10D action from a waypoint (xyz + default rotation + gripper) ---
+function waypointToAction10d(wp) {
+  // Use a default downward-facing gripper orientation
+  const rot = eulerToRotationMatrix(0, Math.PI / 2, 0);
+  const rot6d = rotationMatrixTo6d(rot);
+  return new Float64Array([
+    wp.xyz[0], wp.xyz[1], wp.xyz[2],
+    rot6d[0], rot6d[1], rot6d[2],
+    rot6d[3], rot6d[4], rot6d[5],
+    wp.gripper,
+  ]);
+}
+
+// --- Update waypoint sidebar ---
+function updateWaypointUI() {
+  waypointList.innerHTML = '';
+  for (let i = 0; i < waypoints.length; i++) {
+    const div = document.createElement('div');
+    div.className = 'wp-item' + (i === currentWpIdx ? ' active' : i < currentWpIdx ? ' done' : '');
+    const wp = waypoints[i];
+    const grip = wp.gripper > 0.5 ? 'open' : 'close';
+    div.textContent = `${i}: (${wp.xyz[0].toFixed(3)}, ${wp.xyz[1].toFixed(3)}, ${wp.xyz[2].toFixed(3)}) ${grip}`;
+    waypointList.appendChild(div);
+  }
+}
+
+// --- Animation loop ---
+function animate() {
+  if (!running || !mujocoScene) return;
+
+  if (currentWpIdx < waypoints.length) {
+    const wp = waypoints[currentWpIdx];
+    const action = waypointToAction10d(wp);
+    const ctrlTarget = ikController.solveIk(mujocoScene.data.qpos, action);
+
+    if (ctrlTarget) {
+      WidowXController.applyControl(mujocoScene.data.ctrl, ctrlTarget);
+    }
+
+    for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
+      mujocoScene.step();
+      simStep++;
+    }
+
+    // Check if we've spent enough steps on this waypoint
+    if (simStep % STEPS_PER_WAYPOINT === 0 && simStep > 0) {
+      currentWpIdx++;
+      updateWaypointUI();
+      if (currentWpIdx < waypoints.length) {
+        log(`Waypoint ${currentWpIdx}/${waypoints.length}`, 'info');
+      }
+    }
+  } else {
+    // Done with all waypoints
+    for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
+      mujocoScene.step();
+      simStep++;
+    }
+    if (!running) return; // already stopped
+    running = false;
+    log('Pick-and-place complete!', 'success');
+    btnRun.disabled = false;
+    btnPrebaked.disabled = false;
+  }
+
+  // Update visuals
+  mujocoScene.updateVisuals();
+  mujocoScene.updateWaypointMarkers(waypoints, currentWpIdx);
+  mujocoScene.render();
+
+  // Status bar
+  statusStep.textContent = `Step: ${simStep}`;
+  const d = mujocoScene.data;
+  const lfId = mujocoScene.model.body('wx250s/left_finger_link').id;
+  const rfId = mujocoScene.model.body('wx250s/right_finger_link').id;
+  const ex = (d.xpos[lfId * 3] + d.xpos[rfId * 3]) / 2;
+  const ey = (d.xpos[lfId * 3 + 1] + d.xpos[rfId * 3 + 1]) / 2;
+  const ez = (d.xpos[lfId * 3 + 2] + d.xpos[rfId * 3 + 2]) / 2;
+  statusEe.textContent = `EE: (${ex.toFixed(3)}, ${ey.toFixed(3)}, ${ez.toFixed(3)})`;
+
+  animationId = requestAnimationFrame(animate);
+}
+
+// --- Run pipeline ---
+async function runPipeline(useApiKey) {
+  if (!mujocoScene) return;
+
   btnRun.disabled = true;
   btnPrebaked.disabled = true;
+  running = false;
+  if (animationId) cancelAnimationFrame(animationId);
 
   try {
-    // Create IK controller
-    controller = new WidowXController(scene.mj, scene.model, {
-      useOrientation: true,
-    });
-    log('IK controller created', 'success');
-
     // Capture scene image for Gemini
     log('Capturing scene image...', 'info');
-    // Temporarily sync to primary camera for screenshot
-    const savedCamState = scene.controls.enabled;
-    scene.setFreeCam(false);
-    scene.updateVisuals();
-    const imageBase64 = captureSceneImage(scene.renderer, scene.scene, scene.camera);
-    if (savedCamState) scene.setFreeCam(true);
+    mujocoScene.updateVisuals();
+    mujocoScene.render();
+    const imageBase64 = captureSceneImage(
+      mujocoScene.renderer, mujocoScene.scene, mujocoScene.camera,
+    );
 
-    // Run Gemini ER detect + plan
+    const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const { detections, planSteps } = await detectAndPlan(apiKey, imageBase64, log);
 
-    // Convert plan to waypoints using camera parameters
-    scene.mj.mj_forward(scene.model, scene.data);
-    const { camPos, camRot, fovyDeg } = scene.getPrimaryCameraParams();
+    log(`Detections: ${JSON.stringify(detections)}`, 'info');
+    log(`Plan: ${planSteps.length} steps`, 'info');
+
+    // Convert plan to 3D waypoints
+    const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     waypoints = planToWaypoints(planSteps, camPos, camRot, fovyDeg);
-    waypointIdx = 0;
-    prevWaypointIdx = -1;
-    waypointStallSteps = 0;
-    gripperWaitSteps = 0;
-    smoothedGripper = 1.0;
-    step = 0;
+    currentWpIdx = 0;
+    simStep = 0;
 
     log(`Generated ${waypoints.length} waypoints`, 'success');
-    updateWaypointList();
+    updateWaypointUI();
+    mujocoScene.updateWaypointMarkers(waypoints, 0);
+    mujocoScene.render();
 
-    // Show waypoint markers
-    scene.updateWaypointMarkers(waypoints, waypointIdx);
-
-    // Start simulation loop
-    requestAnimationFrame(animationLoop);
+    // Start animation
+    running = true;
+    statusSim.textContent = 'Sim: running';
+    animate();
 
   } catch (err) {
-    log(`Error: ${err.message}`, 'error');
+    log(`Pipeline error: ${err.message}`, 'error');
     console.error(err);
-    running = false;
     btnRun.disabled = false;
     btnPrebaked.disabled = false;
   }
 }
 
-// --- Waypoint list UI ---
-function updateWaypointList() {
-  waypointListDiv.innerHTML = '';
-  for (let i = 0; i < waypoints.length; i++) {
-    const wp = waypoints[i];
-    const div = document.createElement('div');
-    div.className = 'wp-item' + (i === waypointIdx ? ' active' : '') + (i < waypointIdx ? ' done' : '');
-    const g = wp.gripper > 0.5 ? 'open' : 'closed';
-    div.textContent = `[${i}] (${wp.xyz[0].toFixed(3)}, ${wp.xyz[1].toFixed(3)}, ${wp.xyz[2].toFixed(3)}) ${g}`;
-    waypointListDiv.appendChild(div);
-  }
-}
-
-// --- Get EE position (finger midpoint, matching Python) ---
-function getEePos() {
-  const model = scene.model;
-  const data = scene.data;
-  const lfId = model.body('wx250s/left_finger_link').id;
-  const rfId = model.body('wx250s/right_finger_link').id;
-  return vec3(
-    (data.xpos[lfId * 3] + data.xpos[rfId * 3]) / 2,
-    (data.xpos[lfId * 3 + 1] + data.xpos[rfId * 3 + 1]) / 2,
-    (data.xpos[lfId * 3 + 2] + data.xpos[rfId * 3 + 2]) / 2,
-  );
-}
-
-// --- Animation loop ---
-function animationLoop() {
-  if (!running) return;
-
-  const data = scene.data;
-
-  // Get current EE position
-  const currentXyz = getEePos();
-
-  // Waypoint sequencing (matching demo_widowx.py gemini-er path)
-  if (waypoints.length > 0 && waypointIdx < waypoints.length) {
-    const wp = waypoints[waypointIdx];
-    const distToWp = norm(sub(currentXyz, wp.xyz));
-
-    let advance = false;
-    if (gripperWaitSteps > 0) {
-      gripperWaitSteps--;
-    } else if (distToWp < WAYPOINT_THRESHOLD) {
-      advance = true;
-    } else {
-      waypointStallSteps++;
-      if (waypointStallSteps >= WAYPOINT_STALL_LIMIT) {
-        log(`Stalled at waypoint ${waypointIdx} (dist=${distToWp.toFixed(3)}m), skipping`, 'warn');
-        advance = true;
-      }
-    }
-
-    if (advance && waypointIdx < waypoints.length - 1) {
-      const prevGrip = wp.gripper;
-      waypointIdx++;
-      waypointStallSteps = 0;
-      const nextWp = waypoints[waypointIdx];
-      if (nextWp.gripper !== prevGrip) {
-        gripperWaitSteps = GRIPPER_WAIT_LIMIT;
-      }
-    }
-
-    if (waypointIdx !== prevWaypointIdx) {
-      const wpNow = waypoints[waypointIdx];
-      log(`Waypoint ${waypointIdx}/${waypoints.length}: [${wpNow.xyz[0].toFixed(3)}, ${wpNow.xyz[1].toFixed(3)}, ${wpNow.xyz[2].toFixed(3)}] grip=${wpNow.gripper.toFixed(1)}`, 'info');
-      prevWaypointIdx = waypointIdx;
-      updateWaypointList();
-      scene.updateWaypointMarkers(waypoints, waypointIdx);
-    }
-
-    // Build 10D action from current waypoint
-    const wpNow = waypoints[waypointIdx];
-    const action10d = new Float32Array(10);
-    action10d[0] = wpNow.xyz[0];
-    action10d[1] = wpNow.xyz[1];
-    action10d[2] = wpNow.xyz[2];
-    action10d.set(GRASP_ROT6D, 3);
-    // Smooth gripper
-    smoothedGripper += GRIPPER_EMA_ALPHA * (wpNow.gripper - smoothedGripper);
-    action10d[9] = smoothedGripper;
-
-    // Solve IK and apply control
-    const ctrlTarget = controller.solveIk(data.qpos, action10d);
-    if (ctrlTarget) {
-      WidowXController.applyControl(data.ctrl, ctrlTarget);
-    }
-
-    // Step simulation multiple times per frame
-    for (let i = 0; i < SIM_STEPS_PER_FRAME; i++) {
-      scene.step();
-    }
-    step += SIM_STEPS_PER_FRAME;
-
-    // Check if done
-    if (waypointIdx >= waypoints.length - 1 && (
-      norm(sub(getEePos(), waypoints[waypoints.length - 1].xyz)) < WAYPOINT_THRESHOLD ||
-      waypointStallSteps >= WAYPOINT_STALL_LIMIT
-    )) {
-      log('Demo complete!', 'success');
-      running = false;
-      btnRun.disabled = false;
-      btnPrebaked.disabled = false;
-    }
-  }
-
-  // Update status bar
-  statusStep.textContent = `Step: ${step}`;
-  const ee = getEePos();
-  statusEe.textContent = `EE: (${ee[0].toFixed(3)}, ${ee[1].toFixed(3)}, ${ee[2].toFixed(3)})`;
-
-  // Render
-  scene.updateVisuals();
-  scene.render();
-
-  if (running) {
-    requestAnimationFrame(animationLoop);
-  }
-}
-
-// --- Event handlers ---
-
-// Restore API key from localStorage
-const savedKey = localStorage.getItem('gemini-api-key');
-if (savedKey) apiKeyInput.value = savedKey;
-
-apiKeyInput.addEventListener('input', () => {
-  localStorage.setItem('gemini-api-key', apiKeyInput.value);
-});
-
+// --- UI wiring ---
 btnRun.addEventListener('click', () => {
-  const key = apiKeyInput.value.trim();
-  if (!key) {
-    log('Please enter a Gemini API key, or use "Use Cached Plan"', 'warn');
+  if (!apiKeyInput.value.trim()) {
+    log('Please enter a Gemini API key.', 'warn');
     return;
   }
-  run(key);
+  runPipeline(true);
 });
 
-btnPrebaked.addEventListener('click', () => {
-  run(null); // null key triggers prebaked plan
-});
+btnPrebaked.addEventListener('click', () => runPipeline(false));
 
 chkFreeCam.addEventListener('change', () => {
-  if (scene) scene.setFreeCam(chkFreeCam.checked);
+  if (mujocoScene) {
+    mujocoScene.setFreeCam(chkFreeCam.checked);
+    mujocoScene.render();
+  }
 });
 
-// Start initialization
+// Start
 init();

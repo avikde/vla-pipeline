@@ -38,15 +38,16 @@ export async function initScene(canvas, onProgress = () => {}) {
   // Yield to browser between heavy operations so the page stays responsive
   const yieldToUI = () => new Promise(r => setTimeout(r, 0));
 
-  onProgress('Loading MuJoCo WASM module...');
+  // --- Load MuJoCo WASM first so its thread pool has time to spin up ---
+  onProgress('Loading MuJoCo WASM...');
   console.time('loadMujoco');
   const { default: loadMujoco } = await import('./mujoco.js');
   const mj = await loadMujoco();
   console.timeEnd('loadMujoco');
-  onProgress('MuJoCo WASM loaded');
+  onProgress('MuJoCo WASM loaded. Downloading assets...');
   await yieldToUI();
 
-  // Load assets one at a time with yields to keep browser responsive
+  // --- Fetch assets (Node server handles concurrency; on GitHub Pages HTTP/2 is fine) ---
   mj.FS.mkdir('/assets');
 
   for (let i = 0; i < STL_FILES.length; i++) {
@@ -55,9 +56,7 @@ export async function initScene(canvas, onProgress = () => {}) {
     await yieldToUI();
     const resp = await fetch(`${ASSET_BASE}assets/${f}`);
     if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
-    const buf = await resp.arrayBuffer();
-    console.log(`  ${f}: ${buf.byteLength} bytes`);
-    mj.FS.writeFile(`/assets/${f}`, new Uint8Array(buf));
+    mj.FS.writeFile(`/assets/${f}`, new Uint8Array(await resp.arrayBuffer()));
   }
 
   for (const f of TEXTURE_FILES) {
@@ -65,8 +64,7 @@ export async function initScene(canvas, onProgress = () => {}) {
     await yieldToUI();
     const resp = await fetch(`${ASSET_BASE}assets/${f}`);
     if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
-    const buf = await resp.arrayBuffer();
-    mj.FS.writeFile(`/assets/${f}`, new Uint8Array(buf));
+    mj.FS.writeFile(`/assets/${f}`, new Uint8Array(await resp.arrayBuffer()));
   }
 
   for (const f of XML_FILES) {
@@ -74,18 +72,34 @@ export async function initScene(canvas, onProgress = () => {}) {
     await yieldToUI();
     const resp = await fetch(`${ASSET_BASE}${f}`);
     if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
-    const text = await resp.text();
-    mj.FS.writeFile(`/${f}`, text);
+    mj.FS.writeFile(`/${f}`, await resp.text());
   }
 
-  onProgress('Creating MuJoCo model (may take a few seconds)...');
+  // Pre-allocate worker threads for MuJoCo's thread pool.
+  // from_xml_path blocks the main thread while compiling the model and needs
+  // worker threads ready. If they're allocated on-demand (default), the main
+  // thread deadlocks waiting for workers that haven't loaded WASM yet.
+  onProgress('Warming up thread pool...');
   await yieldToUI();
-  console.time('from_xml_path');
+  const PThread = mj.PThread;
+  if (PThread) {
+    const needed = 4;
+    while (PThread.unusedWorkers.length < needed) {
+      PThread.allocateUnusedWorker();
+      PThread.loadWasmModuleToWorker(PThread.unusedWorkers[PThread.unusedWorkers.length - 1]);
+    }
+    // Give workers time to load the WASM module
+    await new Promise(r => setTimeout(r, 1000));
+  }
 
-  // Use from_xml_path so MuJoCo resolves <include> and meshdir relative to /
+  onProgress('Creating MuJoCo model...');
+  await yieldToUI();
+
   const model = mj.MjModel.from_xml_path('/widowx_vision_scene.xml');
-  console.timeEnd('from_xml_path');
+  onProgress('Model created. Building MjData...');
+  await yieldToUI();
   const data = new mj.MjData(model);
+  console.log('MjData created OK');
 
   // Set home position
   const homeKey = model.key('home');
