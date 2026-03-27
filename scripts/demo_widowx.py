@@ -75,7 +75,7 @@ else:
 # Load WidowX MuJoCo model
 print("\n[2/7] Loading WidowX MuJoCo model...")
 try:
-    xml_path = 'assets/widowx/widowx_vision_scene.xml'
+    xml_path = 'docs/widowx/widowx_vision_scene.xml'
     model = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model)
 

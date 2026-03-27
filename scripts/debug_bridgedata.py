@@ -61,7 +61,7 @@ print(f"  gripper={bd_state[7]:.4f}")
 
 # --- Render MuJoCo cameras ---
 print("\nRendering MuJoCo cameras...")
-model = mujoco.MjModel.from_xml_path("assets/widowx/widowx_vision_scene.xml")
+model = mujoco.MjModel.from_xml_path("docs/widowx/widowx_vision_scene.xml")
 data = mujoco.MjData(model)
 data.qpos[:8] = model.keyframe("home").qpos[:8]
 data.ctrl[:] = model.keyframe("home").ctrl

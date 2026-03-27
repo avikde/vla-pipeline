@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WidowX Gemini ER Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    header {
+      text-align: center;
+      padding: 1.5rem 1rem 1rem;
+    }
+    header h1 {
+      font-size: 1.5rem;
+      color: #fff;
+      margin-bottom: 0.3rem;
+    }
+    header p {
+      font-size: 0.85rem;
+      color: #888;
+    }
+    header p a { color: #6ea8fe; text-decoration: none; }
+    header p a:hover { text-decoration: underline; }
+
+    .controls {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 0.75rem 1rem;
+      background: #16213e;
+      border-radius: 8px;
+      margin: 0.5rem 1rem;
+      max-width: 900px;
+      width: calc(100% - 2rem);
+    }
+    .controls label {
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+    .controls input[type="password"] {
+      background: #0f3460;
+      border: 1px solid #333;
+      color: #e0e0e0;
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      width: 280px;
+    }
+    .controls input[type="password"]:focus {
+      outline: none;
+      border-color: #6ea8fe;
+    }
+    button {
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #444;
+      padding: 0.4rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) { background: #1a5276; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary {
+      background: #1e6f5c;
+      border-color: #2a9d6f;
+    }
+    button.primary:hover:not(:disabled) { background: #289d6f; }
+
+    .main-area {
+      display: flex;
+      gap: 1rem;
+      padding: 0.5rem 1rem;
+      max-width: 900px;
+      width: calc(100% - 2rem);
+      flex: 1;
+    }
+
+    #canvas-container {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #canvas-container canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.85);
+      z-index: 10;
+    }
+    #loading-overlay .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #333;
+      border-top-color: #6ea8fe;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-text {
+      font-size: 0.85rem;
+      color: #aaa;
+    }
+
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .panel {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 0.75rem;
+    }
+    .panel h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6ea8fe;
+      margin-bottom: 0.5rem;
+    }
+    #log {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      max-height: 300px;
+      overflow-y: auto;
+      color: #bbb;
+      word-break: break-word;
+    }
+    #log .info { color: #6ea8fe; }
+    #log .success { color: #2a9d6f; }
+    #log .warn { color: #f0ad4e; }
+    #log .error { color: #e74c3c; }
+
+    #waypoint-list {
+      font-size: 0.75rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      line-height: 1.6;
+    }
+    .wp-item { padding: 0.15rem 0; }
+    .wp-item.active { color: #2a9d6f; font-weight: 600; }
+    .wp-item.done { color: #555; text-decoration: line-through; }
+
+    .status-bar {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.75rem;
+      color: #888;
+      padding: 0.5rem 1rem 1rem;
+    }
+    .status-bar span { white-space: nowrap; }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      color: #aaa;
+      cursor: pointer;
+    }
+    .checkbox-label input { cursor: pointer; }
+
+    @media (max-width: 700px) {
+      .main-area { flex-direction: column; }
+      .sidebar { width: 100%; }
+      #canvas-container { aspect-ratio: 4 / 3; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WidowX + Gemini ER: Pick &amp; Place Demo</h1>
+    <p>
+      MuJoCo WASM &middot; Three.js &middot; Gemini Robotics ER
+      &mdash; <a href="https://github.com/avikde/vla-pipeline" target="_blank">source</a>
+    </p>
+  </header>
+
+  <div class="controls">
+    <label for="api-key">Gemini API Key:</label>
+    <input type="password" id="api-key" placeholder="Paste your key (stored locally only)">
+    <button id="btn-run" class="primary" disabled>Run Demo</button>
+    <button id="btn-prebaked">Use Cached Plan</button>
+    <label class="checkbox-label">
+      <input type="checkbox" id="chk-free-cam"> Free camera
+    </label>
+  </div>
+
+  <div class="main-area">
+    <div id="canvas-container">
+      <canvas id="viewer"></canvas>
+      <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text">Loading MuJoCo WASM...</div>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="panel">
+        <h3>Waypoints</h3>
+        <div id="waypoint-list"><em style="color:#555">No plan yet</em></div>
+      </div>
+      <div class="panel">
+        <h3>Log</h3>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <span id="status-sim">Sim: loading</span>
+    <span id="status-step">Step: 0</span>
+    <span id="status-ee">EE: --</span>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
