@@ -63,11 +63,13 @@ For `-p gemini-er`, get an API key and set the `GEMINI_API_KEY` environment vari
 The `docs/` directory contains a fully client-side port of the Gemini ER pick-and-place demo using MuJoCo WASM + Three.js. No backend required.
 
 ```bash
-cd docs && python3 -m http.server 8080
+cd docs && python3 serve.py
 # Open http://localhost:8080
 ```
 
-Visitors enter their own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier.
+MuJoCo WASM requires `SharedArrayBuffer`, so the server must send COOP/COEP headers (`serve.py` handles this; `python3 -m http.server` won't work).
+
+Visitors enter their own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier).
 
 ## Architecture
 

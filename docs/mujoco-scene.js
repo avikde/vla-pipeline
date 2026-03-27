@@ -8,8 +8,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// CDN URL for the MuJoCo WASM package
-const MUJOCO_CDN = 'https://cdn.jsdelivr.net/npm/@mujoco/mujoco@3.6.1';
+// MuJoCo WASM served locally (Workers require same-origin).
 
 // Asset paths relative to docs/
 const ASSET_BASE = 'widowx/';
@@ -36,49 +35,56 @@ const XML_FILES = ['wx250s.xml', 'widowx_vision_scene.xml'];
  * @returns {Promise<MujocoScene>}
  */
 export async function initScene(canvas, onProgress = () => {}) {
+  // Yield to browser between heavy operations so the page stays responsive
+  const yieldToUI = () => new Promise(r => setTimeout(r, 0));
+
   onProgress('Loading MuJoCo WASM module...');
-
-  // Dynamically import the MuJoCo WASM module from CDN.
-  // The WASM module needs locateFile to find its .wasm binary on the CDN.
-  const { default: loadMujoco } = await import(
-    /* webpackIgnore: true */
-    `${MUJOCO_CDN}/mujoco.js`
-  );
-
-  const mj = await loadMujoco({
-    locateFile: (path) => `${MUJOCO_CDN}/${path}`,
-  });
+  console.time('loadMujoco');
+  const { default: loadMujoco } = await import('./mujoco.js');
+  const mj = await loadMujoco();
+  console.timeEnd('loadMujoco');
   onProgress('MuJoCo WASM loaded');
+  await yieldToUI();
 
-  // Write asset files to the emscripten virtual filesystem
-  onProgress('Loading robot model assets...');
+  // Load assets one at a time with yields to keep browser responsive
   mj.FS.mkdir('/assets');
 
-  // Load STL meshes
-  for (const stl of STL_FILES) {
-    onProgress(`Loading ${stl}...`);
-    const resp = await fetch(`${ASSET_BASE}assets/${stl}`);
+  for (let i = 0; i < STL_FILES.length; i++) {
+    const f = STL_FILES[i];
+    onProgress(`Loading mesh ${i + 1}/${STL_FILES.length}: ${f}`);
+    await yieldToUI();
+    const resp = await fetch(`${ASSET_BASE}assets/${f}`);
+    if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
     const buf = await resp.arrayBuffer();
-    mj.FS.writeFile(`/assets/${stl}`, new Uint8Array(buf));
+    console.log(`  ${f}: ${buf.byteLength} bytes`);
+    mj.FS.writeFile(`/assets/${f}`, new Uint8Array(buf));
   }
 
-  // Load textures
-  for (const tex of TEXTURE_FILES) {
-    const resp = await fetch(`${ASSET_BASE}assets/${tex}`);
+  for (const f of TEXTURE_FILES) {
+    onProgress(`Loading texture: ${f}`);
+    await yieldToUI();
+    const resp = await fetch(`${ASSET_BASE}assets/${f}`);
+    if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
     const buf = await resp.arrayBuffer();
-    mj.FS.writeFile(`/assets/${tex}`, new Uint8Array(buf));
+    mj.FS.writeFile(`/assets/${f}`, new Uint8Array(buf));
   }
 
-  // Load XML files into VFS (needed for <include> resolution)
-  for (const xml of XML_FILES) {
-    const resp = await fetch(`${ASSET_BASE}${xml}`);
+  for (const f of XML_FILES) {
+    onProgress(`Loading XML: ${f}`);
+    await yieldToUI();
+    const resp = await fetch(`${ASSET_BASE}${f}`);
+    if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
     const text = await resp.text();
-    mj.FS.writeFile(`/${xml}`, text);
+    mj.FS.writeFile(`/${f}`, text);
   }
 
-  onProgress('Creating MuJoCo model...');
+  onProgress('Creating MuJoCo model (may take a few seconds)...');
+  await yieldToUI();
+  console.time('from_xml_path');
+
   // Use from_xml_path so MuJoCo resolves <include> and meshdir relative to /
   const model = mj.MjModel.from_xml_path('/widowx_vision_scene.xml');
+  console.timeEnd('from_xml_path');
   const data = new mj.MjData(model);
 
   // Set home position
@@ -91,6 +97,7 @@ export async function initScene(canvas, onProgress = () => {}) {
 
   // Settle physics
   onProgress('Settling physics...');
+  await yieldToUI();
   for (let i = 0; i < 100; i++) mj.mj_step(model, data);
 
   // Create MjvScene for visualization
