@@ -141,7 +141,7 @@ const mjGEOM_CYLINDER = 5;
 const mjGEOM_BOX = 6;
 const mjGEOM_MESH = 7;
 
-function createThreeGeometry(type, size) {
+function createPrimitiveGeometry(type, size) {
   switch (type) {
     case mjGEOM_PLANE:
       return new THREE.PlaneGeometry(size[0] * 2 || 10, size[1] * 2 || 10);
@@ -156,9 +156,38 @@ function createThreeGeometry(type, size) {
     case mjGEOM_BOX:
       return new THREE.BoxGeometry(size[0] * 2, size[1] * 2, size[2] * 2);
     default:
-      // For meshes and unknown types, use a small sphere placeholder
-      return new THREE.SphereGeometry(0.01, 8, 8);
+      return null;
   }
+}
+
+/**
+ * Build a Three.js BufferGeometry from MuJoCo model mesh data.
+ * Follows the approach from zalo/mujoco_wasm mujocoUtils.js.
+ */
+function buildMeshGeometry(model, meshId) {
+  const vertAdr = Number(model.mesh_vertadr[meshId]);
+  const vertNum = Number(model.mesh_vertnum[meshId]);
+  const faceAdr = Number(model.mesh_faceadr[meshId]);
+  const faceNum = Number(model.mesh_facenum[meshId]);
+
+  // Extract vertex positions
+  const verts = new Float32Array(vertNum * 3);
+  for (let i = 0; i < vertNum * 3; i++) {
+    verts[i] = Number(model.mesh_vert[vertAdr * 3 + i]);
+  }
+
+  // Extract face indices
+  const faces = new Uint32Array(faceNum * 3);
+  for (let i = 0; i < faceNum * 3; i++) {
+    faces[i] = Number(model.mesh_face[faceAdr * 3 + i]);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  geometry.setIndex(new THREE.BufferAttribute(faces, 1));
+  geometry.computeVertexNormals();
+
+  return geometry;
 }
 
 /**
@@ -208,8 +237,11 @@ export class MujocoScene {
 
     // Geom mesh cache: maps geom index → Three.js Mesh
     this._geomMeshes = new Map();
-    // Geometry cache: maps key → Three.js BufferGeometry
+    // Geometry cache: maps key → Three.js BufferGeometry (primitives)
     this._geomCache = new Map();
+    // Mesh geometry cache: maps meshId → Three.js BufferGeometry (STL meshes)
+    this._meshGeomCache = new Map();
+    this._buildAllMeshGeometries();
 
     // Waypoint markers (Three.js spheres)
     this._waypointMarkers = [];
@@ -221,6 +253,14 @@ export class MujocoScene {
     this._resizeObserver = new ResizeObserver(() => this._onResize());
     this._resizeObserver.observe(canvas);
     this._onResize();
+  }
+
+  /** Pre-build Three.js BufferGeometry for each MuJoCo mesh. */
+  _buildAllMeshGeometries() {
+    const nmesh = this.model.nmesh;
+    for (let meshId = 0; meshId < nmesh; meshId++) {
+      this._meshGeomCache.set(meshId, buildMeshGeometry(this.model, meshId));
+    }
   }
 
   /** Get primary camera parameters for Gemini ER pixel-to-world projection. */
@@ -305,10 +345,8 @@ export class MujocoScene {
       if (!geom) continue;
 
       const type = geom.type;
-      const size = geom.size;
-      const pos = geom.pos;
-      const mat = geom.mat;
-      const rgba = geom.rgba;
+      // Read embind wrapper properties into plain numbers
+      const s0 = Number(geom.size[0]), s1 = Number(geom.size[1]), s2 = Number(geom.size[2]);
 
       // Get or create Three.js mesh
       let mesh = this._geomMeshes.get(i);
@@ -320,12 +358,20 @@ export class MujocoScene {
           mesh.material.dispose();
         }
 
-        const geomKey = `${type}-${size[0].toFixed(4)}-${size[1].toFixed(4)}-${size[2].toFixed(4)}-${geom.dataid}`;
-        let geometry = this._geomCache.get(geomKey);
-        if (!geometry) {
-          geometry = createThreeGeometry(type, size);
-          this._geomCache.set(geomKey, geometry);
+        let geometry;
+        if (type === mjGEOM_MESH) {
+          geometry = this._meshGeomCache.get(geom.dataid);
         }
+        if (!geometry) {
+          const sizeArr = [s0, s1, s2];
+          const geomKey = `${type}-${s0.toFixed(4)}-${s1.toFixed(4)}-${s2.toFixed(4)}-${geom.dataid}`;
+          geometry = this._geomCache.get(geomKey);
+          if (!geometry) {
+            geometry = createPrimitiveGeometry(type, sizeArr);
+            if (geometry) this._geomCache.set(geomKey, geometry);
+          }
+        }
+        if (!geometry) continue; // skip unknown geom types
 
         const material = new THREE.MeshStandardMaterial({
           roughness: 0.6,
@@ -343,25 +389,34 @@ export class MujocoScene {
 
       mesh.visible = true;
 
-      // Update color
-      mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
-      mesh.material.opacity = rgba[3];
-      mesh.material.transparent = rgba[3] < 1.0;
+      // Read embind wrapper arrays into plain numbers
+      const rgba = geom.rgba;
+      const r = Number(rgba[0]), g = Number(rgba[1]), b = Number(rgba[2]), a = Number(rgba[3]);
+      mesh.material.color.setRGB(r, g, b);
+      mesh.material.opacity = a;
+      mesh.material.transparent = a < 1.0;
+
+      // Read position and rotation from embind wrappers
+      const pos = geom.pos;
+      const mat = geom.mat;
+      const px = Number(pos[0]), py = Number(pos[1]), pz = Number(pos[2]);
+      const m0 = Number(mat[0]), m1 = Number(mat[1]), m2 = Number(mat[2]);
+      const m3 = Number(mat[3]), m4 = Number(mat[4]), m5 = Number(mat[5]);
+      const m6 = Number(mat[6]), m7 = Number(mat[7]), m8 = Number(mat[8]);
 
       // Update transform: MuJoCo provides 3x3 rotation (row-major) + position
-      // Apply scale for ellipsoids
       if (type === mjGEOM_ELLIPSOID) {
         mesh.matrix.set(
-          mat[0] * size[0], mat[1] * size[1], mat[2] * size[2], pos[0],
-          mat[3] * size[0], mat[4] * size[1], mat[5] * size[2], pos[1],
-          mat[6] * size[0], mat[7] * size[1], mat[8] * size[2], pos[2],
+          m0 * s0, m1 * s1, m2 * s2, px,
+          m3 * s0, m4 * s1, m5 * s2, py,
+          m6 * s0, m7 * s1, m8 * s2, pz,
           0, 0, 0, 1,
         );
       } else {
         mesh.matrix.set(
-          mat[0], mat[1], mat[2], pos[0],
-          mat[3], mat[4], mat[5], pos[1],
-          mat[6], mat[7], mat[8], pos[2],
+          m0, m1, m2, px,
+          m3, m4, m5, py,
+          m6, m7, m8, pz,
           0, 0, 0, 1,
         );
       }
