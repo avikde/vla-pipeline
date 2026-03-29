@@ -322,17 +322,19 @@ export class MujocoScene {
       this.camera.lookAt(target);
       this.controls.target.copy(target);
       this.controls.update();
-      // Re-render on every orbit interaction (for idle/non-running state)
-      this._freeCamListener = () => {
+      // Drive controls.update() + render every frame while in free-cam mode
+      const loop = () => {
+        if (!this._freeCamRafId) return;
+        this._freeCamRafId = requestAnimationFrame(loop);
         this.controls.update();
         this.updateVisuals();
         this.render();
       };
-      this.controls.addEventListener('change', this._freeCamListener);
+      this._freeCamRafId = requestAnimationFrame(loop);
     } else {
-      if (this._freeCamListener) {
-        this.controls.removeEventListener('change', this._freeCamListener);
-        this._freeCamListener = null;
+      if (this._freeCamRafId) {
+        cancelAnimationFrame(this._freeCamRafId);
+        this._freeCamRafId = null;
       }
       this._syncCameraFromMujoco('primary');
     }
