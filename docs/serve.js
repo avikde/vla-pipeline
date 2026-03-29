@@ -4,6 +4,13 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
+
+// Auto-setup: download mujoco.js + mujoco.wasm from npm if missing
+if (!fs.existsSync(path.join(__dirname, 'mujoco.wasm'))) {
+  console.log('mujoco.wasm not found — running npm run setup...');
+  execSync('npm run setup', { cwd: __dirname, stdio: 'inherit' });
+}
 
 const PORT = process.argv[2] || 8080;
 const MIME = {

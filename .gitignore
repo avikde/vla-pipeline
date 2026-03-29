@@ -6,4 +6,7 @@
 __pycache__
 .DS_Store
 
-docs/*.wasm
+docs/mujoco.js
+docs/mujoco.wasm
+docs/node_modules/
+docs/package-lock.json
