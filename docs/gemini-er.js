@@ -19,20 +19,20 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { point: [482, 291], label: 'red block' },
-  { point: [338, 641], label: 'blue target' },
+  { point: [755, 585], label: 'red block' },
+  { point: [461, 311], label: 'blue target' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move', args: [291, 482, true] },
+  { function: 'move', args: [585, 755, true] },
   { function: 'setGripperState', args: [true] },
-  { function: 'move', args: [291, 482, false] },
+  { function: 'move', args: [585, 755, false] },
   { function: 'setGripperState', args: [false] },
-  { function: 'move', args: [291, 482, true] },
-  { function: 'move', args: [641, 338, true] },
-  { function: 'move', args: [641, 338, false] },
+  { function: 'move', args: [585, 755, true] },
+  { function: 'move', args: [311, 461, true] },
+  { function: 'move', args: [311, 461, false] },
   { function: 'setGripperState', args: [true] },
-  { function: 'move', args: [641, 338, true] },
+  { function: 'move', args: [311, 461, true] },
 ];
 
 // --- Gemini API call ---
