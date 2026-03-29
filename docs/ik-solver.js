@@ -56,6 +56,10 @@ export class WidowXController {
     for (let i = 0; i < 6; i++) this._homeQ[i] = homeCtrl[i];
 
     this._nv = model.nv;
+
+    // Pre-allocate Jacobian buffers using DoubleBuffer (mj_jacBody requires WASM-owned memory)
+    this._jacpBuf = new mj.DoubleBuffer(3 * this._nv);
+    this._jacrBuf = new mj.DoubleBuffer(3 * this._nv);
   }
 
   /** Compute EE position: finger midpoint (matching Python get_ee_pose). */
@@ -101,10 +105,10 @@ export class WidowXController {
       const posErr = sub(targetPos, eePos);
       if (norm(posErr) < this._tol) break;
 
-      // Compute full Jacobian
-      const jacpFull = new Float64Array(3 * nv);
-      const jacrFull = new Float64Array(3 * nv);
-      this._mj.mj_jacBody(this._model, scratch, jacpFull, jacrFull, this._eeId);
+      // Compute full Jacobian — mj_jacBody requires WASM-owned DoubleBuffer, not JS arrays
+      this._mj.mj_jacBody(this._model, scratch, this._jacpBuf, this._jacrBuf, this._eeId);
+      const jacpFull = this._jacpBuf.GetView();
+      const jacrFull = this._jacrBuf.GetView();
 
       // Extract arm DOF columns: Jp is (3 x 6)
       const Jp = new Float64Array(3 * nArm);

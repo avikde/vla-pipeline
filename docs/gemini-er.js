@@ -132,7 +132,7 @@ The answer should follow the json format: [{"point": <point>,
 "label": <label1>}, ...]. The points are in [y, x] format
 normalized to 0-1000.`;
 
-  log('Detecting objects...', 'info');
+  log('Detecting objects [Gemini]...', 'info');
   const resp1 = await geminiCall(apiKey, imageBase64, prompt1);
   log(`Detection response: ${resp1.slice(0, 200)}`, 'info');
   const detections = parseJson(resp1);
@@ -171,7 +171,7 @@ close the gripper, lift the arm, move to a high position above the bowl,
 move down to the bowl, open the gripper, and then lift the arm back to
 a high position.`;
 
-  log('Generating plan...', 'info');
+  log('Generating plan [Gemini]...', 'info');
   const resp2 = await geminiCall(apiKey, imageBase64, prompt2);
   log(`Plan response: ${resp2.slice(0, 300)}`, 'info');
   const planSteps = parseJson(resp2);
