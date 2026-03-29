@@ -1,7 +1,4 @@
 
-- free camera orientation looks wrong (table is sideways)
-- widowx arm looks wrong - render one segment at a time to get right?
-- The Gemini model name is set to `gemini-2.0-flash` (general availability) rather than `gemini-robotics-er-1.5-preview` (which may require allowlisting)
 - Test if Gemini ER can recognize obstacles and give us info about it
   - extents or corners of objects
 

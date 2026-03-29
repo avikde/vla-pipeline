@@ -13,7 +13,7 @@ const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
 const GRASP_HEIGHT = 0.04;  // z for "low" moves (top of block)
 const TABLE_Z = 0.02;       // table surface z
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-robotics-er-1.5-preview';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // --- Pre-baked plan (fallback when no API key provided) ---
