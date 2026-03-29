@@ -210,7 +210,7 @@ export class MujocoScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setClearColor(0x1a1a2e);
+    this.renderer.setClearColor(0x4a4a4a);
 
     this.scene = new THREE.Scene();
 
