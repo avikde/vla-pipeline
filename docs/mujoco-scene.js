@@ -81,7 +81,8 @@ export async function initScene(canvas, onProgress = () => {}) {
   // thread deadlocks waiting for workers that haven't loaded WASM yet.
   onProgress('Warming up thread pool...');
   await yieldToUI();
-  const PThread = mj.PThread;
+  let PThread;
+  try { PThread = mj.PThread; } catch (_) { PThread = null; }
   if (PThread) {
     const needed = 4;
     while (PThread.unusedWorkers.length < needed) {
