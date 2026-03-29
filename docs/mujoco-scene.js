@@ -212,6 +212,10 @@ export class MujocoScene {
 
     this.scene = new THREE.Scene();
 
+    // Procedural wood texture for table (approximates MuJoCo builtin="flat" wood)
+    this._woodTexture = this._buildWoodTexture();
+    this._woodMatId = model.mat('wood').id;
+
     // Camera (will be synced to MuJoCo primary camera by default)
     const aspect = canvas.clientWidth / canvas.clientHeight;
     this.camera = new THREE.PerspectiveCamera(39, aspect, 0.01, 10);
@@ -373,9 +377,11 @@ export class MujocoScene {
         }
         if (!geometry) continue; // skip unknown geom types
 
+        const isWood = Number(geom.matid) === this._woodMatId;
         const material = new THREE.MeshStandardMaterial({
-          roughness: 0.6,
-          metalness: 0.1,
+          roughness: isWood ? 0.85 : 0.6,
+          metalness: 0.0,
+          ...(isWood && { map: this._woodTexture }),
         });
 
         mesh = new THREE.Mesh(geometry, material);
@@ -389,12 +395,14 @@ export class MujocoScene {
 
       mesh.visible = true;
 
-      // Read embind wrapper arrays into plain numbers
-      const rgba = geom.rgba;
-      const r = Number(rgba[0]), g = Number(rgba[1]), b = Number(rgba[2]), a = Number(rgba[3]);
-      mesh.material.color.setRGB(r, g, b);
-      mesh.material.opacity = a;
-      mesh.material.transparent = a < 1.0;
+      // Apply rgba color only for geoms without a material map (textured geoms keep their texture)
+      if (!mesh.material.map) {  // skip rgba override for wood-textured geoms
+        const rgba = geom.rgba;
+        const r = Number(rgba[0]), g = Number(rgba[1]), b = Number(rgba[2]), a = Number(rgba[3]);
+        mesh.material.color.setRGB(r, g, b);
+        mesh.material.opacity = a;
+        mesh.material.transparent = a < 1.0;
+      }
 
       // Read position and rotation from embind wrappers
       const pos = geom.pos;
@@ -481,6 +489,32 @@ export class MujocoScene {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Build procedural wood canvas texture matching XML: rgb1=0.55,0.42,0.30 random=0.05 texrepeat=3,3 */
+  _buildWoodTexture() {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(size, size);
+    const d = img.data;
+    const base = [140, 107, 77];   // rgb1="0.55 0.42 0.30"
+    const mark = [89, 64, 46];     // markrgb="0.35 0.25 0.18"
+    for (let p = 0; p < size * size; p++) {
+      const noise = (Math.random() - 0.5) * 26; // ±13 ≈ random=0.05 * 255
+      const ismark = Math.random() < 0.05;
+      const c = ismark ? mark : base;
+      d[p*4]   = Math.max(0, Math.min(255, c[0] + (ismark ? 0 : noise)));
+      d[p*4+1] = Math.max(0, Math.min(255, c[1] + (ismark ? 0 : noise)));
+      d[p*4+2] = Math.max(0, Math.min(255, c[2] + (ismark ? 0 : noise)));
+      d[p*4+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(3, 3);  // texrepeat="3 3"
+    return tex;
   }
 
   /** Clean up resources. */
