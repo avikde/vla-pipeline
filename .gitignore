@@ -1,6 +1,7 @@
 /venv
 .claude
 *.png
+!docs/**/*.png
 *.mp4
 *.log
 __pycache__
