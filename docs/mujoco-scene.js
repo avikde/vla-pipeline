@@ -148,11 +148,11 @@ function createPrimitiveGeometry(type, size) {
     case mjGEOM_SPHERE:
       return new THREE.SphereGeometry(size[0], 24, 16);
     case mjGEOM_CAPSULE:
-      return new THREE.CapsuleGeometry(size[0], size[1] * 2, 12, 16);
+      return new THREE.CapsuleGeometry(size[0], size[2] * 2, 12, 16).rotateX(Math.PI / 2);
     case mjGEOM_ELLIPSOID:
       return new THREE.SphereGeometry(1, 24, 16);
     case mjGEOM_CYLINDER:
-      return new THREE.CylinderGeometry(size[0], size[0], size[1] * 2, 24);
+      return new THREE.CylinderGeometry(size[0], size[0], size[2] * 2, 24).rotateX(Math.PI / 2);
     case mjGEOM_BOX:
       return new THREE.BoxGeometry(size[0] * 2, size[1] * 2, size[2] * 2);
     default:
