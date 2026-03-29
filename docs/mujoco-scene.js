@@ -215,6 +215,7 @@ export class MujocoScene {
     // Procedural wood texture for table (approximates MuJoCo builtin="flat" wood)
     this._woodTexture = this._buildWoodTexture();
     this._woodMatId = model.mat('wood').id;
+    this._blackMatId = model.mat('black').id;
 
     // Camera (will be synced to MuJoCo primary camera by default)
     const aspect = canvas.clientWidth / canvas.clientHeight;
@@ -414,11 +415,14 @@ export class MujocoScene {
         }
         if (!geometry) continue; // skip unknown geom types
 
-        const isWood = Number(geom.matid) === this._woodMatId;
+        const matid = Number(geom.matid);
+        const isWood = matid === this._woodMatId;
+        const isBlack = matid === this._blackMatId;
         const material = new THREE.MeshStandardMaterial({
-          roughness: isWood ? 0.85 : 0.6,
-          metalness: 0.0,
+          roughness: isWood ? 0.85 : 0.5,
+          metalness: isBlack ? 0.2 : 0.0,
           ...(isWood && { map: this._woodTexture }),
+          ...(isBlack && { color: new THREE.Color(0.08, 0.08, 0.08) }),
         });
 
         mesh = new THREE.Mesh(geometry, material);
@@ -432,8 +436,8 @@ export class MujocoScene {
 
       mesh.visible = true;
 
-      // Apply rgba color only for geoms without a material map (textured geoms keep their texture)
-      if (!mesh.material.map) {  // skip rgba override for wood-textured geoms
+      // Apply rgba color only for plain geoms; material-based geoms keep their color
+      if (!mesh.material.map && Number(geom.matid) !== this._blackMatId) {
         const rgba = geom.rgba;
         const r = Number(rgba[0]), g = Number(rgba[1]), b = Number(rgba[2]), a = Number(rgba[3]);
         mesh.material.color.setRGB(r, g, b);
