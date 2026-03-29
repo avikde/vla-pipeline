@@ -1,5 +1,4 @@
 
-- FIXMEs in IK in widowx_control.py
 - Can we write the code in anything else?
   - webgpu?
   - webasm? wasm? - mujoco written in this

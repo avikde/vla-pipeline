@@ -329,7 +329,7 @@ class WidowXController:
             mujoco.mj_forward(self._model, scratch)
 
             # --- Compute err in EE coords ---
-            # FIXME: err = target_pos - ee_pos -- what if err is large?
+            # err = target_pos - ee_pos -> step in direction of goal
             pos_err = target_pos - self._ee_pos(scratch)
             if np.linalg.norm(pos_err) < self._tol:
                 break
@@ -368,10 +368,12 @@ class WidowXController:
             m = J.shape[0] # 3 or 6 depending on use_orientation
 
             # J*J^T should be full rank
+            # damped pseudo-inverse `J^T (JJ^T + λI)^{-1}` explicitly
+            # suppresses small singular values
             Jpinv = J.T @ np.linalg.solve(J @ J.T + self._damping * np.eye(m), np.eye(m))
             # J^T (JJ^T)^{-1} err = dq -> mult both sides by J -> err = J * dq
             # So, Jpinv = J^T (JJ^T)^{-1}
-            # FIXME: Why not just linalg.solve(J, err) ?
+            # Could also have been linalg.lstsq(J, err) except for damping
             dq = Jpinv @ err
 
             # Bias toward home configuration to prevent branch-switching
@@ -380,7 +382,6 @@ class WidowXController:
             dq += HOME_BIAS * (self._home_q - q_curr)
 
             # Clamp joint step to prevent large orientation errors from flinging joints
-            # FIXME: should have clamped err in EE coords instead of here?
             MAX_DQ = 0.1  # rad per IK iteration
             dq_norm = np.linalg.norm(dq)
             if dq_norm > MAX_DQ:
