@@ -42,8 +42,9 @@ python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 
 ## Running
 
+### Python demo (opens MuJoCo viewer)
+
 ```bash
-# Main demo (opens MuJoCo viewer)
 python scripts/demo_widowx.py
 
 # Flags:
@@ -55,25 +56,51 @@ python scripts/demo_widowx.py
 # --kp 10               Override proportional gain for arm actuators
 ```
 
-For `-p gemini-er`, get an API key and set the `GEMINI_API_KEY` environment variable as described https://ai.google.dev/gemini-api/docs/api-key.
+For `-p gemini-er`, get an API key and set the `GEMINI_API_KEY` environment variable as described in https://ai.google.dev/gemini-api/docs/api-key.
+
+### Browser demo (GitHub Pages)
+
+The `docs/` directory contains a fully client-side port of the Gemini ER pick-and-place demo using MuJoCo WASM + Three.js. No backend required.
+
+```bash
+cd docs && node serve.js
+# Open http://localhost:8080
+```
+
+MuJoCo WASM requires `SharedArrayBuffer`, so the server must send COOP/COEP headers (`serve.js` handles this; `python3 -m http.server` won't work).
+
+Visitors enter their own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier).
 
 ## Architecture
 
-**Inference loop** (`demo_widowx.py`):
-1. Render `primary` camera at 4:3 (342×256), squish to 256×256 to match BridgeData distortion; second image is black (BridgeData's cam2 is often black)
+### Inference loop (`demo_widowx.py`)
+1. Render `primary` camera at 4:3 (342x256), squish to 256x256 to match BridgeData distortion
 2. Pack images + 8D proprioceptive state (XYZ, RPY, pad, gripper) + language tokens into observation
-3. Run X-VLA → 20D action vector (2 timesteps × 10D)
-4. Decode each 10D slice: XYZ target + 6D rotation + gripper value
-5. In dry-run mode, visualize the EE trajectory
-6. In non-dry-run mode, close the control loop:
-  a. Feed EE target to Jacobian IK (`widowx_control.py`) → joint angles → MuJoCo actuators
-  b. To be implemented
+3. Run X-VLA or Gemini ER planner -> 20D action vector (2 timesteps x 10D)
+4. Feed EE target to Jacobian IK (`widowx_control.py`) -> joint angles -> MuJoCo actuators
 
-**Key modules:**
-- `scripts/xvla_policy.py` — policy loading, observation building, action decoding, MuJoCo utilities (EE pose, cube position). Also contains `generate_non_vla_reference()` fallback reach-and-grasp policy.
-- `scripts/widowx_control.py` — `WidowXController` class: damped least-squares Jacobian IK, 6-DOF or position-only mode, gripper mapping, joint limit enforcement.
-- `scripts/gemini_er_policy.py` — Gemini ER object detection + MuJoCo camera calibration (pixel→3D via ray-plane intersection).
-- `assets/widowx/` — MuJoCo XML models; `widowx_vision_scene.xml` is the primary scene (wooden table, `primary` camera, `third_person` debug camera).
+### Key modules
+
+| Module | Role |
+|--------|------|
+| `scripts/xvla_policy.py` | Policy loading, observation building, action decoding |
+| `scripts/widowx_control.py` | `WidowXController`: damped least-squares Jacobian IK, 6-DOF, gripper mapping |
+| `scripts/gemini_er_policy.py` | Gemini ER object detection + camera calibration (pixel->3D ray-plane intersection) |
+| `docs/widowx/` | MuJoCo XML models + STL meshes; `widowx_vision_scene.xml` is the primary scene |
+
+### Browser demo (`docs/`)
+
+| Module | Role |
+|--------|------|
+| `docs/main.js` | Entry point: init, Gemini pipeline, waypoint sequencing, animation loop |
+| `docs/mujoco-scene.js` | MuJoCo WASM init, Three.js rendering, MjvScene sync |
+| `docs/ik-solver.js` | JS port of `WidowXController` |
+| `docs/gemini-er.js` | JS port of `gemini_er_policy.py` + pre-baked fallback plan |
+| `docs/math-utils.js` | Linear algebra, rotation math, pixel-to-3D projection |
+
+Stack: [`@mujoco/mujoco`](https://www.npmjs.com/package/@mujoco/mujoco) WASM (CDN), [Three.js](https://threejs.org/) v0.170 (CDN), Gemini API via `fetch()`.
+
+### Shared
 
 **Action representation (EE6D):** 10D per timestep = [x, y, z, r1x, r1y, r1z, r2x, r2y, r2z, gripper]. The 6D rotation uses two columns of the rotation matrix (third reconstructed via cross product).
 

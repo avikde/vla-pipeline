@@ -328,6 +328,8 @@ class WidowXController:
         for iters in range(self._max_iter):
             mujoco.mj_forward(self._model, scratch)
 
+            # --- Compute err in EE coords ---
+            # err = target_pos - ee_pos -> step in direction of goal
             pos_err = target_pos - self._ee_pos(scratch)
             if np.linalg.norm(pos_err) < self._tol:
                 break
@@ -354,16 +356,24 @@ class WidowXController:
                 else:
                     rot_err = np.zeros(3)
 
-                J   = np.vstack([Jp, Jr])           # (6, 6)
+                J   = np.vstack([Jp, Jr]) # J = dpose/dq, 6x6
                 # Scale rotation error down so position tracking dominates
                 ORI_WEIGHT = 0.2
                 err = np.concatenate([pos_err, ORI_WEIGHT * rot_err])
             else:
-                J   = Jp                             # (3, 6)
+                J   = Jp # J = dposition/dq, 3x6
                 err = pos_err
 
-            m = J.shape[0]
+            # --- Compute dq = err in joint coords ---
+            m = J.shape[0] # 3 or 6 depending on use_orientation
+
+            # J*J^T should be full rank
+            # damped pseudo-inverse `J^T (JJ^T + λI)^{-1}` explicitly
+            # suppresses small singular values
             Jpinv = J.T @ np.linalg.solve(J @ J.T + self._damping * np.eye(m), np.eye(m))
+            # J^T (JJ^T)^{-1} err = dq -> mult both sides by J -> err = J * dq
+            # So, Jpinv = J^T (JJ^T)^{-1}
+            # Could also have been linalg.lstsq(J, err) except for damping
             dq = Jpinv @ err
 
             # Bias toward home configuration to prevent branch-switching
