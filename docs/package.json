@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "dependencies": {
+    "@mujoco/mujoco": "3.6.1"
+  },
+  "scripts": {
+    "setup": "npm install && node -e \"const fs=require('fs'),src='node_modules/@mujoco/mujoco/';['mujoco.js','mujoco.wasm'].forEach(f=>{fs.copyFileSync(src+f,f);console.log('Copied',f)})\"",
+    "dev": "node serve.js"
+  }
+}

@@ -40,6 +40,11 @@ export async function initScene(canvas, onProgress = () => {}) {
 
   // --- Load MuJoCo WASM first so its thread pool has time to spin up ---
   onProgress('Loading MuJoCo WASM...');
+  if (!crossOriginIsolated) {
+    // SharedArrayBuffer is unavailable without COOP/COEP isolation.
+    // coi-serviceworker.min.js should have reloaded the page to fix this.
+    throw new Error('Page is not cross-origin isolated (SharedArrayBuffer unavailable). Please reload the page.');
+  }
   console.time('loadMujoco');
   const { default: loadMujoco } = await import('./mujoco.js');
   const mj = await loadMujoco();
@@ -77,20 +82,17 @@ export async function initScene(canvas, onProgress = () => {}) {
 
   // Pre-allocate worker threads for MuJoCo's thread pool.
   // from_xml_path blocks the main thread while compiling the model and needs
-  // worker threads ready. If they're allocated on-demand (default), the main
-  // thread deadlocks waiting for workers that haven't loaded WASM yet.
+  // worker threads ready. If they're allocated on-demand, the main thread
+  // deadlocks waiting for workers that haven't loaded WASM yet.
   onProgress('Warming up thread pool...');
   await yieldToUI();
   const PThread = mj.PThread;
-  if (PThread) {
-    const needed = 4;
-    while (PThread.unusedWorkers.length < needed) {
-      PThread.allocateUnusedWorker();
-      PThread.loadWasmModuleToWorker(PThread.unusedWorkers[PThread.unusedWorkers.length - 1]);
-    }
-    // Give workers time to load the WASM module
-    await new Promise(r => setTimeout(r, 1000));
+  const needed = 4;
+  while (PThread.unusedWorkers.length < needed) {
+    PThread.allocateUnusedWorker();
+    PThread.loadWasmModuleToWorker(PThread.unusedWorkers[PThread.unusedWorkers.length - 1]);
   }
+  await new Promise(r => setTimeout(r, 1000));
 
   onProgress('Creating MuJoCo model...');
   await yieldToUI();
@@ -481,6 +483,48 @@ export class MujocoScene {
   /** Render the Three.js scene. */
   render() {
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Render one frame from the primary MuJoCo camera, regardless of free-cam
+   * state. Returns immediately after capturing the frame and restores the
+   * previous camera so the user sees no flicker.
+   */
+  renderPrimaryCamera() {
+    const cam = this.camera;
+    // Save OrbitControls-compatible state
+    const savedPos = cam.position.clone();
+    const savedQuat = cam.quaternion.clone();
+    const savedUp = cam.up.clone();
+    const savedFov = cam.fov;
+    const savedAutoUpdate = cam.matrixAutoUpdate;
+
+    // Snap to primary camera and render — caller must read the canvas
+    // (e.g. toDataURL) before calling restoreFreeCam().
+    this._syncCameraFromMujoco('primary');
+    this.renderer.render(this.scene, cam);
+
+    // Stash state so restoreFreeCam() can put it back
+    this._savedCamState = {
+      pos: savedPos, quat: savedQuat, up: savedUp,
+      fov: savedFov, autoUpdate: savedAutoUpdate,
+    };
+  }
+
+  /** Restore camera after renderPrimaryCamera() + canvas read. */
+  restoreFreeCam() {
+    const s = this._savedCamState;
+    if (!s) return;
+    const cam = this.camera;
+    cam.matrixAutoUpdate = s.autoUpdate;
+    cam.position.copy(s.pos);
+    cam.quaternion.copy(s.quat);
+    cam.up.copy(s.up);
+    cam.fov = s.fov;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld(true);
+    this.renderer.render(this.scene, cam);
+    this._savedCamState = null;
   }
 
   /** Create/update waypoint markers. */

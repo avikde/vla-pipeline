@@ -3,6 +3,7 @@
 import io
 import json
 import re
+import time
 
 import mujoco
 import numpy as np
@@ -140,7 +141,9 @@ The answer should follow the json format: [{"point": <point>,
 normalized to 0-1000."""
 
     print("  [Gemini ER] Prompt 1: detecting objects...")
+    t0 = time.monotonic()
     resp1 = _gemini_call(image_bytes, prompt1)
+    print(f"  Gemini responded in {time.monotonic() - t0:.1f}s")
     print(f"  Response: {resp1.strip()}")
     detections = _parse_json(resp1)
 
@@ -180,7 +183,9 @@ move down to the bowl, open the gripper, and then lift the arm back to
 a high position."""
 
     print("  [Gemini ER] Prompt 2: generating plan...")
+    t0 = time.monotonic()
     resp2 = _gemini_call(image_bytes, prompt2)
+    print(f"  Gemini responded in {time.monotonic() - t0:.1f}s")
     print(f"  Response: {resp2.strip()}")
     plan_steps = _parse_json(resp2)
 

@@ -61,6 +61,7 @@ async function geminiCall(apiKey, imageBase64, prompt) {
     }],
     generationConfig: {
       temperature: 0.5,
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
@@ -95,17 +96,14 @@ function parseJson(rawText) {
 // --- Canvas to base64 JPEG ---
 
 /**
- * Render the Three.js scene from the primary camera and return base64 JPEG.
+ * Grab the current canvas content as a JPEG for the Gemini prompt.
+ * Caller is responsible for rendering the desired camera first
+ * (e.g. via mujocoScene.renderPrimaryCamera()).
  * @param {THREE.WebGLRenderer} renderer
- * @param {THREE.Scene} scene
- * @param {THREE.Camera} camera - The primary camera (matching MuJoCo's)
  * @returns {string} Base64-encoded JPEG (no data: prefix)
  */
-export function captureSceneImage(renderer, scene, camera) {
-  // Render to the main canvas
-  renderer.render(scene, camera);
+export function captureSceneImage(renderer) {
   const dataUrl = renderer.domElement.toDataURL('image/jpeg', 0.9);
-  // Strip "data:image/jpeg;base64," prefix
   return dataUrl.split(',')[1];
 }
 
@@ -133,7 +131,9 @@ The answer should follow the json format: [{"point": <point>,
 normalized to 0-1000.`;
 
   log('Detecting objects [Gemini]...', 'info');
+  let t0 = performance.now();
   const resp1 = await geminiCall(apiKey, imageBase64, prompt1);
+  log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
   log(`Detection response: ${resp1.slice(0, 200)}`, 'info');
   const detections = parseJson(resp1);
 
@@ -172,7 +172,9 @@ move down to the bowl, open the gripper, and then lift the arm back to
 a high position.`;
 
   log('Generating plan [Gemini]...', 'info');
+  t0 = performance.now();
   const resp2 = await geminiCall(apiKey, imageBase64, prompt2);
+  log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
   log(`Plan response: ${resp2.slice(0, 300)}`, 'info');
   const planSteps = parseJson(resp2);
   log(`Plan has ${planSteps.length} steps`, 'success');

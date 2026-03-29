@@ -5,9 +5,19 @@ Vision-Language-Action model integration with low-level control using MuJoCo sim
 Software: PyTorch 2.10.0 with CUDA 12.8, LeRobot 0.4.3 with X-VLA, MuJoCo.
 
 Blog posts for context:
-- https://www.avikde.me/p/the-architecture-behind-end-to-end
-- https://www.avikde.me/p/debugging-as-architecture-insight
-- https://open.substack.com/pub/minpower/p/a-coding-agent-equivalent-for-robotics?r=5vzx85&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true
+- [The architecture behind “end-to-end” robotics pipelines](https://www.avikde.me/p/the-architecture-behind-end-to-end)
+- [Debugging as architecture insight: dissecting a VLA
+](https://www.avikde.me/p/debugging-as-architecture-insight)
+- [A coding agent equivalent for robotics pipelines
+](https://www.avikde.me/p/a-coding-agent-equivalent-for-roboticse)
+
+## Web demo (start here)
+
+Try the browser-based demo with MuJoCo WASM + Three.js, no installation required:
+- Grab your own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier), or use the pre-baked fallback plan
+- Open https://avikde.github.io/vla-pipeline/ in Chrome
+- Click "Run Demo" or "Use Cached Plan" and watch the pick-and-place in action!
+- Use the mouse to orbit the camera, and check the console for debug logs
 
 ## Install
 
@@ -58,18 +68,14 @@ python scripts/demo_widowx.py
 
 For `-p gemini-er`, get an API key and set the `GEMINI_API_KEY` environment variable as described in https://ai.google.dev/gemini-api/docs/api-key.
 
-### Browser demo (GitHub Pages)
+### Browser demo local version
 
 The `docs/` directory contains a fully client-side port of the Gemini ER pick-and-place demo using MuJoCo WASM + Three.js. No backend required.
 
 ```bash
-cd docs && node serve.js
+node docs/serve.js
 # Open http://localhost:8080
 ```
-
-MuJoCo WASM requires `SharedArrayBuffer`, so the server must send COOP/COEP headers (`serve.js` handles this; `python3 -m http.server` won't work).
-
-Visitors enter their own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier).
 
 ## Architecture
 
