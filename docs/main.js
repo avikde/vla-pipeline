@@ -84,6 +84,8 @@ async function init() {
 
     ikController = new WidowXController(mujocoScene.mj, mujocoScene.model);
 
+    mujocoScene.setVisibleBodies(null); // show all
+
     // Initial render
     mujocoScene.updateVisuals();
     mujocoScene.render();

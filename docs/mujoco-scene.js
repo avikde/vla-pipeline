@@ -253,6 +253,9 @@ export class MujocoScene {
     // Primary camera for Gemini screenshot
     this._primaryCamId = model.cam('primary').id;
 
+    // Body filter for debugging (null = show all mesh geoms)
+    this._allowedBodyIds = null;
+
     // Handle resize
     this._resizeObserver = new ResizeObserver(() => this._onResize());
     this._resizeObserver.observe(canvas);
@@ -340,6 +343,15 @@ export class MujocoScene {
     }
   }
 
+  /** Restrict mesh geom rendering to specific body names (null = show all). */
+  setVisibleBodies(bodyNames) {
+    if (bodyNames === null) {
+      this._allowedBodyIds = null;
+    } else {
+      this._allowedBodyIds = new Set(bodyNames.map(n => this.model.body(n).id));
+    }
+  }
+
   /** Step MuJoCo simulation. */
   step() {
     this.mj.mj_step(this.model, this.data);
@@ -366,6 +378,12 @@ export class MujocoScene {
       if (!geom) continue;
 
       const type = geom.type;
+
+      // Body filter for debugging (null = show all)
+      if (this._allowedBodyIds !== null && type === mjGEOM_MESH) {
+        const bodyId = Number(this.model.geom_bodyid[Number(geom.objid)]);
+        if (!this._allowedBodyIds.has(bodyId)) continue;
+      }
       // Read embind wrapper properties into plain numbers
       const s0 = Number(geom.size[0]), s1 = Number(geom.size[1]), s2 = Number(geom.size[2]);
 
@@ -381,7 +399,9 @@ export class MujocoScene {
 
         let geometry;
         if (type === mjGEOM_MESH) {
-          geometry = this._meshGeomCache.get(geom.dataid);
+          // geom.objid is the model geom index; geom.dataid can differ, use objid for all lookups
+          const meshId = Number(this.model.geom_dataid[Number(geom.objid)]);
+          geometry = this._meshGeomCache.get(meshId);
         }
         if (!geometry) {
           const sizeArr = [s0, s1, s2];
