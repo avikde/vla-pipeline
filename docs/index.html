@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WidowX Gemini ER Demo</title>
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://cdn.jsdelivr.net blob:;
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' blob: data:;
+    connect-src 'self' https://generativelanguage.googleapis.com;
+    worker-src 'self' blob:;
+    frame-ancestors 'none';
+  ">
   <!-- Adds COOP/COEP headers via service worker so SharedArrayBuffer works on GitHub Pages.
        coi-serviceworker v0.1.7 doesn't reload on first install (skipWaiting+claim case),
        so we listen for controllerchange and do one reload ourselves. -->
