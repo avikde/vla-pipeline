@@ -40,9 +40,18 @@ export async function initScene(canvas, onProgress = () => {}) {
 
   // --- Load MuJoCo WASM first so its thread pool has time to spin up ---
   onProgress('Loading MuJoCo WASM...');
+  if (!crossOriginIsolated) {
+    // SharedArrayBuffer is unavailable without COOP/COEP isolation.
+    // coi-serviceworker.min.js should have reloaded the page to fix this.
+    throw new Error('Page is not cross-origin isolated (SharedArrayBuffer unavailable). Please reload the page.');
+  }
   console.time('loadMujoco');
   const { default: loadMujoco } = await import('./mujoco.js');
-  const mj = await loadMujoco();
+  // PTHREAD_POOL_SIZE pre-allocates workers before the module resolves.
+  // Without this, from_xml_path deadlocks: it blocks the main thread while
+  // MuJoCo's internal ThreadPool tries to spawn workers that need the event
+  // loop to start.
+  const mj = await loadMujoco({ PTHREAD_POOL_SIZE: 4 });
   console.timeEnd('loadMujoco');
   onProgress('MuJoCo WASM loaded. Downloading assets...');
   await yieldToUI();
@@ -73,24 +82,6 @@ export async function initScene(canvas, onProgress = () => {}) {
     const resp = await fetch(`${ASSET_BASE}${f}`);
     if (!resp.ok) throw new Error(`Failed to fetch ${f}: ${resp.status}`);
     mj.FS.writeFile(`/${f}`, await resp.text());
-  }
-
-  // Pre-allocate worker threads for MuJoCo's thread pool.
-  // from_xml_path blocks the main thread while compiling the model and needs
-  // worker threads ready. If they're allocated on-demand (default), the main
-  // thread deadlocks waiting for workers that haven't loaded WASM yet.
-  onProgress('Warming up thread pool...');
-  await yieldToUI();
-  let PThread;
-  try { PThread = mj.PThread; } catch (_) { PThread = null; }
-  if (PThread) {
-    const needed = 4;
-    while (PThread.unusedWorkers.length < needed) {
-      PThread.allocateUnusedWorker();
-      PThread.loadWasmModuleToWorker(PThread.unusedWorkers[PThread.unusedWorkers.length - 1]);
-    }
-    // Give workers time to load the WASM module
-    await new Promise(r => setTimeout(r, 1000));
   }
 
   onProgress('Creating MuJoCo model...');
