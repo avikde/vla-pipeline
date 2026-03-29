@@ -168,6 +168,7 @@ function animate() {
   // Update visuals
   mujocoScene.updateVisuals();
   mujocoScene.updateWaypointMarkers(waypoints, currentWpIdx);
+  mujocoScene.controls.update();
   mujocoScene.render();
 
   // Status bar

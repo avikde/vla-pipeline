@@ -314,11 +314,26 @@ export class MujocoScene {
     this.controls.enabled = enabled;
     if (enabled) {
       this.camera.matrixAutoUpdate = true;
-      // Position camera at a reasonable orbit
-      this.camera.position.set(0.5, 0.5, 0.4);
-      this.camera.lookAt(0.2, 0, 0.1);
-      this.controls.target.set(0.2, 0, 0.1);
+      // Scene is Z-up (MuJoCo convention)
+      this.camera.up.set(0, 0, 1);
+      // Over-the-shoulder position: behind (negative Y), elevated (positive Z), slightly right
+      this.camera.position.set(0.5, -0.4, 0.6);
+      const target = new THREE.Vector3(0.2, 0.05, 0.05);
+      this.camera.lookAt(target);
+      this.controls.target.copy(target);
+      this.controls.update();
+      // Re-render on every orbit interaction (for idle/non-running state)
+      this._freeCamListener = () => {
+        this.controls.update();
+        this.updateVisuals();
+        this.render();
+      };
+      this.controls.addEventListener('change', this._freeCamListener);
     } else {
+      if (this._freeCamListener) {
+        this.controls.removeEventListener('change', this._freeCamListener);
+        this._freeCamListener = null;
+      }
       this._syncCameraFromMujoco('primary');
     }
   }
