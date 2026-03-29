@@ -485,6 +485,48 @@ export class MujocoScene {
     this.renderer.render(this.scene, this.camera);
   }
 
+  /**
+   * Render one frame from the primary MuJoCo camera, regardless of free-cam
+   * state. Returns immediately after capturing the frame and restores the
+   * previous camera so the user sees no flicker.
+   */
+  renderPrimaryCamera() {
+    const cam = this.camera;
+    // Save OrbitControls-compatible state
+    const savedPos = cam.position.clone();
+    const savedQuat = cam.quaternion.clone();
+    const savedUp = cam.up.clone();
+    const savedFov = cam.fov;
+    const savedAutoUpdate = cam.matrixAutoUpdate;
+
+    // Snap to primary camera and render — caller must read the canvas
+    // (e.g. toDataURL) before calling restoreFreeCam().
+    this._syncCameraFromMujoco('primary');
+    this.renderer.render(this.scene, cam);
+
+    // Stash state so restoreFreeCam() can put it back
+    this._savedCamState = {
+      pos: savedPos, quat: savedQuat, up: savedUp,
+      fov: savedFov, autoUpdate: savedAutoUpdate,
+    };
+  }
+
+  /** Restore camera after renderPrimaryCamera() + canvas read. */
+  restoreFreeCam() {
+    const s = this._savedCamState;
+    if (!s) return;
+    const cam = this.camera;
+    cam.matrixAutoUpdate = s.autoUpdate;
+    cam.position.copy(s.pos);
+    cam.quaternion.copy(s.quat);
+    cam.up.copy(s.up);
+    cam.fov = s.fov;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld(true);
+    this.renderer.render(this.scene, cam);
+    this._savedCamState = null;
+  }
+
   /** Create/update waypoint markers. */
   updateWaypointMarkers(waypoints, currentIdx = 0) {
     // Remove excess markers

@@ -86,9 +86,9 @@ async function init() {
 
     mujocoScene.setVisibleBodies(null); // show all
 
-    // Initial render
-    mujocoScene.updateVisuals();
-    mujocoScene.render();
+    // Start in free camera mode
+    chkFreeCam.checked = true;
+    mujocoScene.setFreeCam(true);
 
     loadingOverlay.style.display = 'none';
     statusSim.textContent = 'Sim: ready';
@@ -196,13 +196,18 @@ async function runPipeline(useApiKey) {
   if (animationId) cancelAnimationFrame(animationId);
 
   try {
-    // Capture scene image for Gemini
-    log('Capturing scene image...', 'info');
+    // Snap to primary camera, grab the frame, then restore the free cam view
+    log('Grabbing primary camera image...', 'info');
     mujocoScene.updateVisuals();
-    mujocoScene.render();
-    const imageBase64 = captureSceneImage(
-      mujocoScene.renderer, mujocoScene.scene, mujocoScene.camera,
-    );
+    mujocoScene.renderPrimaryCamera();
+    const imageBase64 = captureSceneImage(mujocoScene.renderer);
+    mujocoScene.restoreFreeCam();
+
+    const img = document.createElement('img');
+    img.src = 'data:image/jpeg;base64,' + imageBase64;
+    img.style.maxWidth = '100%';
+    logDiv.appendChild(img);
+    logDiv.scrollTop = logDiv.scrollHeight;
 
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const { detections, planSteps } = await detectAndPlan(apiKey, imageBase64, log);
