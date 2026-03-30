@@ -6,7 +6,7 @@
  */
 
 import {
-  pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, dot,
+  pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, sub, norm, dot,
 } from './math-utils.js';
 
 const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
@@ -30,7 +30,9 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
  * @returns {{ center: Float64Array, radius: number, height: number }}
  */
 export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuffer = null) {
+  const [topY, leftX, bottomY, rightX] = bbox;
   const [pointNormY, pointNormX] = point;
+  const centerX = (leftX + rightX) / 2;
   const toPxX = (v) => v / 1000 * VLA_WIDTH;
   const toPxY = (v) => v / 1000 * VLA_HEIGHT;
 
@@ -41,15 +43,26 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
     const viewDepth = depthBuffer.data[py * depthBuffer.width + px];
     // Camera forward axis in world space: -col2(camRot) (col2 = indices 2,5,8 in row-major)
     const fwd = vec3(-camRot[2], -camRot[5], -camRot[8]);
-    const ray = pixelToRay(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg);
-    const t = viewDepth / dot(ray.dir, fwd);
-    const center = vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
-    return { center };
+    const projectToDepth = (normX, normY) => {
+      const ray = pixelToRay(toPxX(normX), toPxY(normY), camPos, camRot, fovyDeg);
+      const t = viewDepth / dot(ray.dir, fwd);
+      return vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
+    };
+    const center = projectToDepth(pointNormX, pointNormY);
+    const horizontal_size = norm(sub(projectToDepth(rightX, pointNormY), projectToDepth(leftX, pointNormY)));
+    const vertical_size = norm(sub(projectToDepth(centerX, bottomY), projectToDepth(centerX, topY)));
+    return { center, horizontal_size, vertical_size };
   }
 
   // Fallback when no depth buffer (e.g. prebaked plan): ray-plane intersection at TABLE_Z
   const center = pixelToWorld3d(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  return { center };
+  const pLeft  = pixelToWorld3d(toPxX(leftX),   toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
+  const pRight = pixelToWorld3d(toPxX(rightX),  toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
+  const pTop   = pixelToWorld3d(toPxX(centerX), toPxY(topY),       camPos, camRot, fovyDeg, TABLE_Z);
+  const pBot   = pixelToWorld3d(toPxX(centerX), toPxY(bottomY),    camPos, camRot, fovyDeg, TABLE_Z);
+  const horizontal_size = norm(sub(pRight, pLeft));
+  const vertical_size   = norm(sub(pBot, pTop));
+  return { center, horizontal_size, vertical_size };
 }
 
 // --- Pre-baked plan (fallback when no API key provided) ---

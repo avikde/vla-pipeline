@@ -674,11 +674,12 @@ export class MujocoScene {
     }
     this._obstacleMarkers = [];
     for (const obs of obstacles) {
-      const geo = new THREE.SphereGeometry(0.015, 12, 8);
+      const geo = new THREE.SphereGeometry(0.5, 12, 8);
       const color = obs.type === 'obstacle' ? 0xff8800 : obs.type === 'block' ? 0xff0000 : 0x0088ff;
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7 });
+      const mat = new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.7 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(obs.center[0], obs.center[1], obs.center[2]);
+      mesh.scale.set(obs.horizontal_size, obs.horizontal_size, obs.vertical_size);
       this.scene.add(mesh);
       this._obstacleMarkers.push(mesh);
     }
