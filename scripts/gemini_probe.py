@@ -15,13 +15,14 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-PROMPT = """Detect all objects and obstacles on the table. For each, return:
+PROMPT = """
+Detect all objects and obstacles on the table. For each, return:
 - "label": a short name (e.g. "red block", "dark cylinder", "blue target mat")
-- "point": center location in [y, x] format normalized to 0-1000
-- "bbox": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
+- "footprint": center location and size in [y, x, radius, height] format normalized to 0-1000
 - "type": one of "block", "target", "obstacle"
 
-Return JSON: [{"label": ..., "point": [y, x], "bbox": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]"""
+Return JSON: [{"label": ..., "footprint": [y, x, radius, height], "type": ...}, ...]
+"""
 
 TYPE_COLORS = {"block": "red", "target": "blue", "obstacle": "black"}
 
@@ -62,29 +63,19 @@ w, h = img.width, img.height
 for det in detections:
     color = TYPE_COLORS.get(det.get("type", ""), "white")
 
-    # Draw bounding box if present
-    if "bbox" in det:
-        top_y, left_x, bottom_y, right_x = det["bbox"]
-        rect_x = left_x / 1000 * w
-        rect_y = top_y / 1000 * h
-        rect_w = (right_x - left_x) / 1000 * w
-        rect_h = (bottom_y - top_y) / 1000 * h
-        rect = mpatches.FancyBboxPatch(
-            (rect_x, rect_y), rect_w, rect_h,
-            linewidth=2, edgecolor=color, facecolor="none",
-            boxstyle="round,pad=0",
+    # Draw footprint: circle + vertical line up to height
+    if "footprint" in det:
+        fy, fx, fsize, fheight = det["footprint"]
+        cx = fx / 1000 * w
+        cy = fy / 1000 * h
+        radius = fsize / 1000 * min(w, h)
+        circle = mpatches.Circle(
+            (cx, cy), radius,
+            linewidth=2, edgecolor=color, facecolor=color, alpha=0.2,
         )
-        ax.add_patch(rect)
-
-    # Draw center point and label
-    if "point" in det:
-        py, px = det["point"]
-        x_px = px / 1000 * w
-        y_px = py / 1000 * h
-        ax.plot(x_px, y_px, "o", color=color, markersize=8,
-                markeredgecolor="white", markeredgewidth=1.5)
-        ax.text(x_px + 8, y_px, det["label"], color="white", fontsize=9,
-                bbox=dict(boxstyle="round,pad=0.2", fc=color, alpha=0.7))
+        ax.add_patch(circle)
+        height_px = fheight / 1000 * h
+        ax.plot([cx, cx], [cy + height_px * 0.5, cy - height_px * 0.5], "-", color=color, linewidth=2)
 
 legend = [mpatches.Patch(color=c, label=t) for t, c in TYPE_COLORS.items()]
 ax.legend(handles=legend, loc="upper right", fontsize=8)
