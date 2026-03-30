@@ -613,8 +613,11 @@ export class MujocoScene {
       for (let x = 0; x < W; x++) {
         const srcRow = H - 1 - y; // WebGL y-flip
         const i = (srcRow * W + x) * 4;
-        const r = raw[i] / 255, g = raw[i + 1] / 255, b = raw[i + 2] / 255, a = raw[i + 3] / 255;
-        const ndcDepth = r + g / 255 + b / 65025 + a / 16581375;
+        // Three.js r170 packs R=MSB, A=LSB with PackUpscale=256/255.
+        // Unpack: dot(rgba_float, UnpackFactors4) where
+        //   UnpackFactors4 = vec4(255/256, 255/65536, 255/16777216, 1/16777216)
+        // With byte→float: rgba_float = byte/255, so each term = byte/256^k.
+        const ndcDepth = raw[i] / 256 + raw[i + 1] / 65536 + raw[i + 2] / 16777216 + raw[i + 3] / 4278190080;
         // NDC [0,1] → linear view-space Z in metres
         data[y * W + x] = (near * far) / (far - ndcDepth * (far - near));
       }
