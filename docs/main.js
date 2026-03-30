@@ -54,7 +54,7 @@ apiKeyInput.addEventListener('input', () => {
 
 // --- Init ---
 // Lazy-loaded modules (populated in init)
-let initScene, WidowXController, detectAndPlan, planToWaypoints, captureSceneImage;
+let initScene, WidowXController, detectAndPlan, planToWaypoints;
 let eulerToRotationMatrix, rotationMatrixTo6d;
 
 async function init() {
@@ -68,7 +68,6 @@ async function init() {
     const geminiModule = await import('./gemini-er.js');
     detectAndPlan = geminiModule.detectAndPlan;
     planToWaypoints = geminiModule.planToWaypoints;
-    captureSceneImage = geminiModule.captureSceneImage;
     const mathModule = await import('./math-utils.js');
     eulerToRotationMatrix = mathModule.eulerToRotationMatrix;
     rotationMatrixTo6d = mathModule.rotationMatrixTo6d;
@@ -200,7 +199,7 @@ async function runPipeline(useApiKey) {
     log('Grabbing primary camera image...', 'info');
     mujocoScene.updateVisuals();
     mujocoScene.renderPrimaryCamera();
-    const imageBase64 = captureSceneImage(mujocoScene.renderer);
+    const imageBase64 = mujocoScene.capturePrimaryImage();
     const depthBuffer = mujocoScene.capturePrimaryDepthBuffer();
     mujocoScene.restoreFreeCam();
 

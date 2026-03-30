@@ -489,9 +489,10 @@ export class MujocoScene {
   }
 
   /**
-   * Render one frame from the primary MuJoCo camera, regardless of free-cam
-   * state. Returns immediately after capturing the frame and restores the
-   * previous camera so the user sees no flicker.
+   * Render one frame from the primary MuJoCo camera into an offscreen
+   * RENDER_WIDTH x RENDER_HEIGHT target, completely independent of the
+   * browser viewport.  Caller should follow with capturePrimaryImage()
+   * and/or capturePrimaryDepthBuffer(), then restoreFreeCam().
    */
   renderPrimaryCamera() {
     const cam = this.camera;
@@ -500,21 +501,63 @@ export class MujocoScene {
     const savedQuat = cam.quaternion.clone();
     const savedUp = cam.up.clone();
     const savedFov = cam.fov;
+    const savedAspect = cam.aspect;
     const savedAutoUpdate = cam.matrixAutoUpdate;
 
-    // Snap to primary camera and render — caller must read the canvas
-    // (e.g. toDataURL) before calling restoreFreeCam().
+    // Snap to primary camera with deterministic aspect ratio
     this._syncCameraFromMujoco('primary');
+    cam.aspect = RENDER_WIDTH / RENDER_HEIGHT;
+    cam.updateProjectionMatrix();
+
+    // Render RGB into offscreen target at RENDER_WIDTH x RENDER_HEIGHT
+    if (!this._rgbRenderTarget) {
+      this._rgbRenderTarget = new THREE.WebGLRenderTarget(RENDER_WIDTH, RENDER_HEIGHT);
+    }
+    this.renderer.setRenderTarget(this._rgbRenderTarget);
     this.renderer.render(this.scene, cam);
+    this.renderer.setRenderTarget(null);
 
     // Stash state so restoreFreeCam() can put it back
     this._savedCamState = {
       pos: savedPos, quat: savedQuat, up: savedUp,
-      fov: savedFov, autoUpdate: savedAutoUpdate,
+      fov: savedFov, aspect: savedAspect, autoUpdate: savedAutoUpdate,
     };
   }
 
-  /** Restore camera after renderPrimaryCamera() + canvas read. */
+  /**
+   * Read the RGB image captured by renderPrimaryCamera() as a base64 JPEG.
+   * Must be called after renderPrimaryCamera() and before restoreFreeCam().
+   * @returns {string} Base64-encoded JPEG (no data: prefix)
+   */
+  capturePrimaryImage() {
+    const W = RENDER_WIDTH, H = RENDER_HEIGHT;
+    const raw = new Uint8Array(W * H * 4);
+    this.renderer.readRenderTargetPixels(this._rgbRenderTarget, 0, 0, W, H, raw);
+
+    // Draw onto an offscreen canvas (flip Y: WebGL y=0 at bottom)
+    if (!this._rgbCanvas) {
+      this._rgbCanvas = document.createElement('canvas');
+      this._rgbCanvas.width = W;
+      this._rgbCanvas.height = H;
+    }
+    const ctx = this._rgbCanvas.getContext('2d');
+    const imgData = ctx.createImageData(W, H);
+    for (let y = 0; y < H; y++) {
+      const srcRow = H - 1 - y;
+      for (let x = 0; x < W; x++) {
+        const si = (srcRow * W + x) * 4;
+        const di = (y * W + x) * 4;
+        imgData.data[di] = raw[si];
+        imgData.data[di + 1] = raw[si + 1];
+        imgData.data[di + 2] = raw[si + 2];
+        imgData.data[di + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return this._rgbCanvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+  }
+
+  /** Restore camera after renderPrimaryCamera() captures. */
   restoreFreeCam() {
     const s = this._savedCamState;
     if (!s) return;
@@ -524,6 +567,7 @@ export class MujocoScene {
     cam.quaternion.copy(s.quat);
     cam.up.copy(s.up);
     cam.fov = s.fov;
+    cam.aspect = s.aspect;
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld(true);
     this.renderer.render(this.scene, cam);
@@ -533,10 +577,8 @@ export class MujocoScene {
   /**
    * Capture a depth buffer from the primary camera view.
    * Must be called after renderPrimaryCamera() and before restoreFreeCam().
-   *
-   * Renders the scene with MeshDepthMaterial into an offscreen target and reads
-   * back pixels. Returns a Float32Array of linear view-space depth in metres,
-   * row-major, y=0 at the top (matching image convention).
+   * The camera already has aspect = RENDER_WIDTH/RENDER_HEIGHT from
+   * renderPrimaryCamera(), so the frustum matches the RGB capture exactly.
    *
    * @returns {{ data: Float32Array, width: number, height: number }}
    */
@@ -551,9 +593,6 @@ export class MujocoScene {
       });
     }
 
-    // Render scene with depth material into offscreen target.
-    // Do NOT change camera.aspect — the frustum must match the RGB capture so that
-    // Gemini's [0,1000] pixel coords map to the same NDC positions in both images.
     const cam = this.camera;
     const prevOverride = this.scene.overrideMaterial;
     this.scene.overrideMaterial = this._depthMaterial;
@@ -632,6 +671,8 @@ export class MujocoScene {
     }
     this._obstacleMarkers = [];
     for (const obs of obstacles) {
+      /// FIX
+      if (obs.type != 'obstacle') continue; //
       const geo = new THREE.SphereGeometry(0.015, 12, 8);
       const color = obs.type === 'obstacle' ? 0xff8800 : obs.type === 'block' ? 0xff0000 : 0x0088ff;
       const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7 });
