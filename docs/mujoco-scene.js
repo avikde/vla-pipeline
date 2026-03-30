@@ -577,7 +577,7 @@ export class MujocoScene {
         const r = raw[i] / 255, g = raw[i + 1] / 255, b = raw[i + 2] / 255, a = raw[i + 3] / 255;
         const ndcDepth = r + g / 255 + b / 65025 + a / 16581375;
         // NDC [0,1] → linear view-space Z in metres
-        data[y * W + x] = (2 * near * far) / (far + near - ndcDepth * (far - near));
+        data[y * W + x] = (near * far) / (far - ndcDepth * (far - near));
       }
     }
 
