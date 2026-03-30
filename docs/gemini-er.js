@@ -47,22 +47,16 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
   };
   const center = projectAtDepth(pointNormX, pointNormY, viewDepth);
 
-  // Project bbox edges at center depth to get axis-aligned radii.
+  // Project bbox edges at center depth; compute 3D Euclidean span for each axis.
   const centerX = (leftX + rightX) / 2;
   const centerY = (topY + bottomY) / 2;
-  const samples = [
-    projectAtDepth(leftX,   centerY,    viewDepth),
-    projectAtDepth(rightX,  centerY,    viewDepth),
-    projectAtDepth(centerX, topY,       viewDepth),
-    projectAtDepth(centerX, bottomY,    viewDepth),
-  ];
-  let rx = 0, ry = 0, rz = 0;
-  for (const p of samples) {
-    rx = Math.max(rx, Math.abs(p[0] - center[0]));
-    ry = Math.max(ry, Math.abs(p[1] - center[1]));
-    rz = Math.max(rz, Math.abs(p[2] - center[2]));
-  }
-  return { center, rx: Math.max(rx, 0.01), ry: Math.max(ry, 0.01), rz: Math.max(rz, 0.01), samples };
+  const pLeft  = projectAtDepth(leftX,   centerY, viewDepth);
+  const pRight = projectAtDepth(rightX,  centerY, viewDepth);
+  const pTop   = projectAtDepth(centerX, topY,    viewDepth);
+  const pBot   = projectAtDepth(centerX, bottomY, viewDepth);
+  const horizontal_size = Math.max(norm(sub(pRight, pLeft)), 0.02);
+  const vertical_size   = Math.max(norm(sub(pBot, pTop)),   0.02);
+  return { center, horizontal_size, vertical_size };
 }
 
 // --- Pre-baked plan (fallback when no API key provided) ---
