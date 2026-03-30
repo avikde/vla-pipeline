@@ -201,18 +201,42 @@ async function runPipeline(useApiKey) {
     mujocoScene.updateVisuals();
     mujocoScene.renderPrimaryCamera();
     const imageBase64 = captureSceneImage(mujocoScene.renderer);
+    const depthBuffer = mujocoScene.capturePrimaryDepthBuffer();
     mujocoScene.restoreFreeCam();
 
     const img = document.createElement('img');
     img.src = 'data:image/jpeg;base64,' + imageBase64;
     img.style.maxWidth = '100%';
     logDiv.appendChild(img);
+
+    // Visualize depth buffer as grayscale (near=bright, far=dark), clipped to 2m
+    {
+      const { data, width, height } = depthBuffer;
+      const CLIP = 2.0; // metres — clip far background
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.maxWidth = '100%';
+      const ctx = canvas.getContext('2d');
+      const imgData = ctx.createImageData(width, height);
+      for (let i = 0; i < width * height; i++) {
+        const d = Math.min(data[i], CLIP);
+        const v = Math.round((1 - d / CLIP) * 255); // near=255, far=0
+        imgData.data[i * 4 + 0] = v;
+        imgData.data[i * 4 + 1] = v;
+        imgData.data[i * 4 + 2] = v;
+        imgData.data[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      logDiv.appendChild(canvas);
+    }
+
     logDiv.scrollTop = logDiv.scrollHeight;
 
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     const { detections, planSteps, obstacles } = await detectAndPlan(
-      apiKey, imageBase64, log, { camPos, camRot, fovyDeg },
+      apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer },
     );
 
     log(`Detections: ${JSON.stringify(detections)}`, 'info');

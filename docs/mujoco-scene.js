@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RENDER_WIDTH, RENDER_HEIGHT } from './math-utils.js';
 
 // MuJoCo WASM served locally (Workers require same-origin).
 
@@ -527,6 +528,67 @@ export class MujocoScene {
     cam.updateMatrixWorld(true);
     this.renderer.render(this.scene, cam);
     this._savedCamState = null;
+  }
+
+  /**
+   * Capture a depth buffer from the primary camera view.
+   * Must be called after renderPrimaryCamera() and before restoreFreeCam().
+   *
+   * Renders the scene with MeshDepthMaterial into an offscreen target and reads
+   * back pixels. Returns a Float32Array of linear view-space depth in metres,
+   * row-major, y=0 at the top (matching image convention).
+   *
+   * @returns {{ data: Float32Array, width: number, height: number }}
+   */
+  capturePrimaryDepthBuffer() {
+    const W = RENDER_WIDTH, H = RENDER_HEIGHT;
+
+    // Reuse render target across calls
+    if (!this._depthRenderTarget) {
+      this._depthRenderTarget = new THREE.WebGLRenderTarget(W, H);
+      this._depthMaterial = new THREE.MeshDepthMaterial({
+        depthPacking: THREE.RGBADepthPacking,
+      });
+    }
+
+    // Temporarily set camera aspect to match depth target dimensions
+    const cam = this.camera;
+    const prevAspect = cam.aspect;
+    cam.aspect = W / H;
+    cam.updateProjectionMatrix();
+
+    // Render scene with depth material into offscreen target
+    const prevOverride = this.scene.overrideMaterial;
+    this.scene.overrideMaterial = this._depthMaterial;
+    this.renderer.setRenderTarget(this._depthRenderTarget);
+    this.renderer.render(this.scene, cam);
+    this.renderer.setRenderTarget(null);
+    this.scene.overrideMaterial = prevOverride;
+
+    // Restore camera aspect
+    cam.aspect = prevAspect;
+    cam.updateProjectionMatrix();
+
+    // Read raw RGBA pixels (WebGL: y=0 at bottom)
+    const raw = new Uint8Array(W * H * 4);
+    this.renderer.readRenderTargetPixels(this._depthRenderTarget, 0, 0, W, H, raw);
+
+    // Decode RGBADepthPacking → NDC depth [0,1] → linear view-space depth (metres)
+    // Flip y so that row 0 = top of image (matching Gemini pixel convention)
+    const near = cam.near, far = cam.far;
+    const data = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const srcRow = H - 1 - y; // WebGL y-flip
+        const i = (srcRow * W + x) * 4;
+        const r = raw[i] / 255, g = raw[i + 1] / 255, b = raw[i + 2] / 255, a = raw[i + 3] / 255;
+        const ndcDepth = r + g / 255 + b / 65025 + a / 16581375;
+        // NDC [0,1] → linear view-space Z in metres
+        data[y * W + x] = (2 * near * far) / (far + near - ndcDepth * (far - near));
+      }
+    }
+
+    return { data, width: W, height: H };
   }
 
   /** Create/update waypoint markers. */

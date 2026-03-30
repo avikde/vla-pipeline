@@ -24,9 +24,12 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
  * @param {Float64Array} camPos - Camera world position (3)
  * @param {Float64Array} camRot - Camera rotation matrix (9, row-major)
  * @param {number} fovyDeg - Camera FOV Y in degrees
+ * @param {{ data: Float32Array, width: number, height: number }} [depthBuffer]
+ *   Linear view-space depth in metres, row-major, y=0 at top. When provided,
+ *   use depth at the detected point instead of assuming TABLE_Z.
  * @returns {{ center: Float64Array, radius: number, height: number }}
  */
-export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg) {
+export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuffer = null) {
   const [topY, leftX, , rightX] = bbox;
   const [pointNormY, pointNormX] = point;
   const centerX = (leftX + rightX) / 2;
@@ -34,6 +37,11 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg) {
   // Convert normalized 0-1000 → VLA pixel coords
   const toPxX = (v) => v / 1000 * VLA_WIDTH;
   const toPxY = (v) => v / 1000 * VLA_HEIGHT;
+
+  /// TODO: use depth
+  // const px = Math.round(pointNormX / 1000 * (depthBuffer.width - 1));
+  // const py = Math.round(pointNormY / 1000 * (depthBuffer.height - 1));
+  // const viewDepth = depthBuffer.data[py * depthBuffer.width + px];
 
   // Base position from center detection point — more reliable than bbox bottom edge,
   // which projects to the front face of the object rather than its center footprint.
@@ -159,8 +167,9 @@ export function captureSceneImage(renderer) {
  * @param {string|null} apiKey - Gemini API key, or null for prebaked plan
  * @param {string} imageBase64 - Base64 JPEG of scene
  * @param {Function} log - Logging callback (msg, level)
- * @param {{ camPos: Float64Array, camRot: Float64Array, fovyDeg: number }} [cameraParams]
- *   Camera parameters for 3D obstacle extraction from bounding boxes
+ * @param {{ camPos: Float64Array, camRot: Float64Array, fovyDeg: number,
+ *           depthBuffer: { data: Float32Array, width: number, height: number } }} [cameraParams]
+ *   Camera parameters and depth buffer for 3D obstacle extraction
  * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
 export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null) {
@@ -230,10 +239,10 @@ a high position.`;
   // Extract 3D obstacle cylinders from bounding boxes
   const obstacles = [];
   if (cameraParams) {
-    const { camPos, camRot, fovyDeg } = cameraParams;
+    const { camPos, camRot, fovyDeg, depthBuffer } = cameraParams;
     for (const det of detections) {
       if (det.box_2d) {
-        const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg);
+        const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg, depthBuffer);
         obstacles.push({ label: det.label, type: det.type, ...obs3d });
       }
     }
