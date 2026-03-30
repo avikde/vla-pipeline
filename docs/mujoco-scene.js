@@ -252,6 +252,8 @@ export class MujocoScene {
 
     // Waypoint markers (Three.js spheres)
     this._waypointMarkers = [];
+    // Obstacle markers (Three.js wireframe cylinders)
+    this._obstacleMarkers = [];
 
     // Primary camera for Gemini screenshot
     this._primaryCamId = model.cam('primary').id;
@@ -565,6 +567,33 @@ export class MujocoScene {
     }
   }
 
+  /** Create/update obstacle cylinder markers. */
+  updateObstacleMarkers(obstacles) {
+    // Remove old markers
+    for (const m of this._obstacleMarkers) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
+    }
+    this._obstacleMarkers = [];
+    // Create new markers
+    for (const obs of obstacles) {
+      const geo = new THREE.CylinderGeometry(obs.radius, obs.radius, obs.height, 16);
+      const mat = new THREE.MeshBasicMaterial({
+        color: obs.type === 'obstacle' ? 0xff8800 : obs.type === 'block' ? 0xff0000 : 0x0088ff,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.5,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      // Three.js CylinderGeometry is along Y; MuJoCo scene uses Z-up
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.set(obs.center[0], obs.center[1], obs.center[2]);
+      this.scene.add(mesh);
+      this._obstacleMarkers.push(mesh);
+    }
+  }
+
   /** Handle canvas resize. */
   _onResize() {
     const canvas = this.renderer.domElement;
@@ -615,6 +644,11 @@ export class MujocoScene {
       geo.dispose();
     }
     for (const m of this._waypointMarkers) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
+    }
+    for (const m of this._obstacleMarkers) {
       this.scene.remove(m);
       m.geometry.dispose();
       m.material.dispose();

@@ -1,6 +1,6 @@
 
-- Test if Gemini ER can recognize obstacles and give us info about it
-  - extents or corners of objects
+- visualized cylinders don't match
+- it moved green block to red mat, but it should have moved red block to blue mat
 - web version drag to move obstacles or blocks
 
 ## Non-IK solution

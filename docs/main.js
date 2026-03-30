@@ -210,13 +210,18 @@ async function runPipeline(useApiKey) {
     logDiv.scrollTop = logDiv.scrollHeight;
 
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
-    const { detections, planSteps } = await detectAndPlan(apiKey, imageBase64, log);
+    const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
+    const { detections, planSteps, obstacles } = await detectAndPlan(
+      apiKey, imageBase64, log, { camPos, camRot, fovyDeg },
+    );
 
     log(`Detections: ${JSON.stringify(detections)}`, 'info');
     log(`Plan: ${planSteps.length} steps`, 'info');
 
+    // Visualize 3D obstacles
+    mujocoScene.updateObstacleMarkers(obstacles);
+
     // Convert plan to 3D waypoints
-    const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     waypoints = planToWaypoints(planSteps, camPos, camRot, fovyDeg);
     currentWpIdx = 0;
     simStep = 0;

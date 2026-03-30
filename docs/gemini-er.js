@@ -6,7 +6,7 @@
  */
 
 import {
-  pixelToWorld3d, VLA_WIDTH, VLA_HEIGHT, vec3,
+  pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, sub, norm,
 } from './math-utils.js';
 
 const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
@@ -15,6 +15,50 @@ const TABLE_Z = 0.02;       // table surface z
 
 const GEMINI_MODEL = 'gemini-robotics-er-1.5-preview';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+/**
+ * Convert a Gemini bounding box + center point to a 3D obstacle cylinder.
+ *
+ * @param {number[]} bbox - [top_y, left_x, bottom_y, right_x] normalized 0-1000
+ * @param {number[]} point - [y, x] center detection normalized 0-1000
+ * @param {Float64Array} camPos - Camera world position (3)
+ * @param {Float64Array} camRot - Camera rotation matrix (9, row-major)
+ * @param {number} fovyDeg - Camera FOV Y in degrees
+ * @returns {{ center: Float64Array, radius: number, height: number }}
+ */
+export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg) {
+  const [topY, leftX, , rightX] = bbox;
+  const [pointNormY, pointNormX] = point;
+  const centerX = (leftX + rightX) / 2;
+
+  // Convert normalized 0-1000 → VLA pixel coords
+  const toPxX = (v) => v / 1000 * VLA_WIDTH;
+  const toPxY = (v) => v / 1000 * VLA_HEIGHT;
+
+  // Base position from center detection point — more reliable than bbox bottom edge,
+  // which projects to the front face of the object rather than its center footprint.
+  const pBase = pixelToWorld3d(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
+
+  // Footprint radius: project left/right bbox edges at the detection point's y level
+  const pLeft = pixelToWorld3d(toPxX(leftX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
+  const pRight = pixelToWorld3d(toPxX(rightX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
+  const radius = Math.max(norm(sub(pRight, pLeft)) / 2, 0.01);
+
+  // Height: cast ray through top-center, find z where it's directly above pBase.
+  // Use the dominant ray component for numerical stability.
+  const topRay = pixelToRay(toPxX(centerX), toPxY(topY), camPos, camRot, fovyDeg);
+  const t = Math.abs(topRay.dir[0]) >= Math.abs(topRay.dir[1])
+    ? (pBase[0] - topRay.origin[0]) / topRay.dir[0]
+    : (pBase[1] - topRay.origin[1]) / topRay.dir[1];
+  const topZ = topRay.origin[2] + t * topRay.dir[2];
+  const height = Math.max(topZ - TABLE_Z, 0.01);
+
+  return {
+    center: vec3(pBase[0], pBase[1], TABLE_Z + height / 2),
+    radius,
+    height,
+  };
+}
 
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
@@ -115,20 +159,24 @@ export function captureSceneImage(renderer) {
  * @param {string|null} apiKey - Gemini API key, or null for prebaked plan
  * @param {string} imageBase64 - Base64 JPEG of scene
  * @param {Function} log - Logging callback (msg, level)
- * @returns {Promise<{detections: Array, planSteps: Array}>}
+ * @param {{ camPos: Float64Array, camRot: Float64Array, fovyDeg: number }} [cameraParams]
+ *   Camera parameters for 3D obstacle extraction from bounding boxes
+ * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
-export async function detectAndPlan(apiKey, imageBase64, log = () => {}) {
+export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null) {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
-    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN };
+    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles: [] };
   }
 
-  // Prompt 1: detect red block + blue target
-  const prompt1 = `Locate and point to the red block and the blue target. The label returned
-should be an identifying name for the object detected.
-The answer should follow the json format: [{"point": <point>,
-"label": <label1>}, ...]. The points are in [y, x] format
-normalized to 0-1000.`;
+  // Prompt 1: detect all objects with bounding boxes
+  const prompt1 = `Detect all objects and obstacles on the table. For each, return:
+- "label": a short identifying name (e.g. "red block", "dark cylinder", "blue target mat")
+- "point": center location in [y, x] format normalized to 0-1000
+- "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
+- "type": one of "block", "target", "obstacle"
+
+Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
   log('Detecting objects [Gemini]...', 'info');
   let t0 = performance.now();
@@ -179,7 +227,23 @@ a high position.`;
   const planSteps = parseJson(resp2);
   log(`Plan has ${planSteps.length} steps`, 'success');
 
-  return { detections, planSteps };
+  // Extract 3D obstacle cylinders from bounding boxes
+  const obstacles = [];
+  if (cameraParams) {
+    const { camPos, camRot, fovyDeg } = cameraParams;
+    for (const det of detections) {
+      if (det.box_2d) {
+        const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg);
+        obstacles.push({ label: det.label, type: det.type, ...obs3d });
+      }
+    }
+    log(`Extracted ${obstacles.length} 3D obstacles from bounding boxes`, 'info');
+    for (const obs of obstacles) {
+      log(`  ${obs.label}: center=(${obs.center[0].toFixed(3)}, ${obs.center[1].toFixed(3)}, ${obs.center[2].toFixed(3)}) r=${obs.radius.toFixed(3)} h=${obs.height.toFixed(3)}`, 'info');
+    }
+  }
+
+  return { detections, planSteps, obstacles };
 }
 
 /**
