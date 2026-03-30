@@ -6,7 +6,7 @@
  */
 
 import {
-  pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, sub, norm, dot,
+  pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, dot,
 } from './math-utils.js';
 
 const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
@@ -30,10 +30,7 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
  * @returns {{ center: Float64Array, radius: number, height: number }}
  */
 export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuffer = null) {
-  const [topY, leftX, bottomY, rightX] = bbox;
   const [pointNormY, pointNormX] = point;
-  const centerX = (leftX + rightX) / 2;
-
   const toPxX = (v) => v / 1000 * VLA_WIDTH;
   const toPxY = (v) => v / 1000 * VLA_HEIGHT;
 
@@ -42,48 +39,17 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
     const px = Math.round(pointNormX / 1000 * (depthBuffer.width - 1));
     const py = Math.round(pointNormY / 1000 * (depthBuffer.height - 1));
     const viewDepth = depthBuffer.data[py * depthBuffer.width + px];
-
     // Camera forward axis in world space: -col2(camRot) (col2 = indices 2,5,8 in row-major)
     const fwd = vec3(-camRot[2], -camRot[5], -camRot[8]);
-
-    // Project a pixel ray to the plane at viewDepth along the optical axis
-    const projectToDepth = (normX, normY) => {
-      const ray = pixelToRay(toPxX(normX), toPxY(normY), camPos, camRot, fovyDeg);
-      const t = viewDepth / dot(ray.dir, fwd);
-      return vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
-    };
-
-    // Front-surface point at the detection center
-    const pSurface = projectToDepth(pointNormX, pointNormY);
-
-    // Horizontal size: left/right bbox edges projected to the depth plane at pointNormY
-    const horizontal_size = norm(sub(projectToDepth(rightX, pointNormY), projectToDepth(leftX, pointNormY)));
-    const radius = Math.max(horizontal_size / 2, 0.01);
-
-    // Vertical size: top/bottom bbox edges projected to the depth plane at centerX
-    const height = Math.max(norm(sub(projectToDepth(centerX, topY), projectToDepth(centerX, bottomY))), 0.01);
-
-    // Object center is half the horizontal size behind the front surface
-    const center = vec3(
-      pSurface[0] + (horizontal_size / 2) * fwd[0],
-      pSurface[1] + (horizontal_size / 2) * fwd[1],
-      pSurface[2] + (horizontal_size / 2) * fwd[2],
-    );
-    return { center, radius, height };
+    const ray = pixelToRay(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg);
+    const t = viewDepth / dot(ray.dir, fwd);
+    const center = vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
+    return { center };
   }
 
   // Fallback when no depth buffer (e.g. prebaked plan): ray-plane intersection at TABLE_Z
-  const pBase  = pixelToWorld3d(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  const pLeft  = pixelToWorld3d(toPxX(leftX),      toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  const pRight = pixelToWorld3d(toPxX(rightX),     toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  const radius = Math.max(norm(sub(pRight, pLeft)) / 2, 0.01);
-  const topRay = pixelToRay(toPxX(centerX), toPxY(topY), camPos, camRot, fovyDeg);
-  const tFall = Math.abs(topRay.dir[0]) >= Math.abs(topRay.dir[1])
-    ? (pBase[0] - topRay.origin[0]) / topRay.dir[0]
-    : (pBase[1] - topRay.origin[1]) / topRay.dir[1];
-  const topZ = topRay.origin[2] + tFall * topRay.dir[2];
-  const height = Math.max(topZ - TABLE_Z, 0.01);
-  return { center: vec3(pBase[0], pBase[1], TABLE_Z + height / 2), radius, height };
+  const center = pixelToWorld3d(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
+  return { center };
 }
 
 // --- Pre-baked plan (fallback when no API key provided) ---
@@ -266,7 +232,7 @@ a high position.`;
     }
     log(`Extracted ${obstacles.length} 3D obstacles from bounding boxes`, 'info');
     for (const obs of obstacles) {
-      log(`  ${obs.label}: center=(${obs.center[0].toFixed(3)}, ${obs.center[1].toFixed(3)}, ${obs.center[2].toFixed(3)}) r=${obs.radius.toFixed(3)} h=${obs.height.toFixed(3)}`, 'info');
+      log(`  ${obs.label}: center=(${obs.center[0].toFixed(3)}, ${obs.center[1].toFixed(3)}, ${obs.center[2].toFixed(3)})`, 'info');
     }
   }
 
