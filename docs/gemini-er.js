@@ -29,59 +29,64 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
  *   use depth at the detected point instead of assuming TABLE_Z.
  * @returns {{ center: Float64Array, radius: number, height: number }}
  */
-export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuffer = null) {
+export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuffer) {
   const [topY, leftX, bottomY, rightX] = bbox;
   const [pointNormY, pointNormX] = point;
-  const centerX = (leftX + rightX) / 2;
   const toPxX = (v) => v / 1000 * VLA_WIDTH;
   const toPxY = (v) => v / 1000 * VLA_HEIGHT;
+  // Sample view-space depth at the detected center pixel
+  const px = Math.round(pointNormX / 1000 * (depthBuffer.width - 1));
+  const py = Math.round(pointNormY / 1000 * (depthBuffer.height - 1));
+  const viewDepth = depthBuffer.data[py * depthBuffer.width + px];
+  // Camera forward axis in world space: -col2(camRot) (col2 = indices 2,5,8 in row-major)
+  const fwd = vec3(-camRot[2], -camRot[5], -camRot[8]);
+  const projectAtDepth = (normX, normY, depth) => {
+    const ray = pixelToRay(toPxX(normX), toPxY(normY), camPos, camRot, fovyDeg);
+    const t = depth / dot(ray.dir, fwd);
+    return vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
+  };
+  const center = projectAtDepth(pointNormX, pointNormY, viewDepth);
 
-  if (depthBuffer) {
-    // Sample view-space depth at the detected center pixel
-    const px = Math.round(pointNormX / 1000 * (depthBuffer.width - 1));
-    const py = Math.round(pointNormY / 1000 * (depthBuffer.height - 1));
-    const viewDepth = depthBuffer.data[py * depthBuffer.width + px];
-    // Camera forward axis in world space: -col2(camRot) (col2 = indices 2,5,8 in row-major)
-    const fwd = vec3(-camRot[2], -camRot[5], -camRot[8]);
-    const projectToDepth = (normX, normY) => {
-      const ray = pixelToRay(toPxX(normX), toPxY(normY), camPos, camRot, fovyDeg);
-      const t = viewDepth / dot(ray.dir, fwd);
-      return vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
-    };
-    const center = projectToDepth(pointNormX, pointNormY);
-    const horizontal_size = norm(sub(projectToDepth(rightX, pointNormY), projectToDepth(leftX, pointNormY)));
-    const vertical_size = norm(sub(projectToDepth(centerX, bottomY), projectToDepth(centerX, topY)));
-    return { center, horizontal_size, vertical_size };
+  // Project bbox edges at center depth to get axis-aligned radii.
+  const centerX = (leftX + rightX) / 2;
+  const centerY = (topY + bottomY) / 2;
+  const samples = [
+    projectAtDepth(leftX,   centerY,    viewDepth),
+    projectAtDepth(rightX,  centerY,    viewDepth),
+    projectAtDepth(centerX, topY,       viewDepth),
+    projectAtDepth(centerX, bottomY,    viewDepth),
+  ];
+  let rx = 0, ry = 0, rz = 0;
+  for (const p of samples) {
+    rx = Math.max(rx, Math.abs(p[0] - center[0]));
+    ry = Math.max(ry, Math.abs(p[1] - center[1]));
+    rz = Math.max(rz, Math.abs(p[2] - center[2]));
   }
-
-  // Fallback when no depth buffer (e.g. prebaked plan): ray-plane intersection at TABLE_Z
-  const center = pixelToWorld3d(toPxX(pointNormX), toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  const pLeft  = pixelToWorld3d(toPxX(leftX),   toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  const pRight = pixelToWorld3d(toPxX(rightX),  toPxY(pointNormY), camPos, camRot, fovyDeg, TABLE_Z);
-  const pTop   = pixelToWorld3d(toPxX(centerX), toPxY(topY),       camPos, camRot, fovyDeg, TABLE_Z);
-  const pBot   = pixelToWorld3d(toPxX(centerX), toPxY(bottomY),    camPos, camRot, fovyDeg, TABLE_Z);
-  const horizontal_size = norm(sub(pRight, pLeft));
-  const vertical_size   = norm(sub(pBot, pTop));
-  return { center, horizontal_size, vertical_size };
+  return { center, rx: Math.max(rx, 0.01), ry: Math.max(ry, 0.01), rz: Math.max(rz, 0.01), samples };
 }
 
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { point: [755, 585], label: 'red block' },
-  { point: [461, 311], label: 'blue target' },
+  { label: 'red circle target', point: [520, 100],  box_2d: [440,   0, 650, 200], type: 'target' },
+  { label: 'green block',       point: [630, 230],  box_2d: [530, 158, 730, 300], type: 'block' },
+  { label: 'blue circle target',point: [440, 300],  box_2d: [350, 210, 530, 400], type: 'target' },
+  { label: 'dark cylinder obstacle', point: [440, 350], box_2d: [290, 300, 550, 390], type: 'obstacle' },
+  { label: 'dark cylinder obstacle', point: [530, 450], box_2d: [400, 410, 660, 490], type: 'obstacle' },
+  { label: 'blue block',        point: [570, 550],  box_2d: [480, 490, 670, 620], type: 'block' },
+  { label: 'red block',         point: [750, 580],  box_2d: [660, 510, 870, 650], type: 'block' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move', args: [585, 755, true] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move', args: [585, 755, false] },
-  { function: 'setGripperState', args: [false] },
-  { function: 'move', args: [585, 755, true] },
-  { function: 'move', args: [311, 461, true] },
-  { function: 'move', args: [311, 461, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move', args: [311, 461, true] },
+  { function: 'move',             args: [230, 630, true] },
+  { function: 'setGripperState',  args: [true] },
+  { function: 'move',             args: [230, 630, false] },
+  { function: 'setGripperState',  args: [false] },
+  { function: 'move',             args: [230, 630, true] },
+  { function: 'move',             args: [100, 520, true] },
+  { function: 'move',             args: [100, 520, false] },
+  { function: 'setGripperState',  args: [true] },
+  { function: 'move',             args: [100, 520, true] },
 ];
 
 // --- Gemini API call ---
@@ -172,7 +177,18 @@ export function captureSceneImage(renderer) {
 export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null) {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
-    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles: [] };
+    const obstacles = [];
+    if (cameraParams) {
+      const { camPos, camRot, fovyDeg, depthBuffer } = cameraParams;
+      for (const det of PREBAKED_DETECTIONS) {
+        if (det.box_2d) {
+          const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg, depthBuffer);
+          obstacles.push({ label: det.label, type: det.type, ...obs3d });
+        }
+      }
+      log(`Extracted ${obstacles.length} 3D obstacles from pre-baked detections`, 'info');
+    }
+    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles };
   }
 
   // Prompt 1: detect all objects with bounding boxes
@@ -188,7 +204,7 @@ Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y
   let t0 = performance.now();
   const resp1 = await geminiCall(apiKey, imageBase64, prompt1);
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
-  log(`Detection response: ${resp1.slice(0, 200)}`, 'info');
+  log(`Detection response: ${resp1}`, 'info');
   const detections = parseJson(resp1);
 
   const blockDet = detections.find(d => d.label.toLowerCase().includes('block')) ?? detections[0];
@@ -229,7 +245,7 @@ a high position.`;
   t0 = performance.now();
   const resp2 = await geminiCall(apiKey, imageBase64, prompt2);
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
-  log(`Plan response: ${resp2.slice(0, 300)}`, 'info');
+  log(`Plan response: ${resp2}`, 'info');
   const planSteps = parseJson(resp2);
   log(`Plan has ${planSteps.length} steps`, 'success');
 
