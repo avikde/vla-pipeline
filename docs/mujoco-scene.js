@@ -551,23 +551,16 @@ export class MujocoScene {
       });
     }
 
-    // Temporarily set camera aspect to match depth target dimensions
+    // Render scene with depth material into offscreen target.
+    // Do NOT change camera.aspect — the frustum must match the RGB capture so that
+    // Gemini's [0,1000] pixel coords map to the same NDC positions in both images.
     const cam = this.camera;
-    const prevAspect = cam.aspect;
-    cam.aspect = W / H;
-    cam.updateProjectionMatrix();
-
-    // Render scene with depth material into offscreen target
     const prevOverride = this.scene.overrideMaterial;
     this.scene.overrideMaterial = this._depthMaterial;
     this.renderer.setRenderTarget(this._depthRenderTarget);
     this.renderer.render(this.scene, cam);
     this.renderer.setRenderTarget(null);
     this.scene.overrideMaterial = prevOverride;
-
-    // Restore camera aspect
-    cam.aspect = prevAspect;
-    cam.updateProjectionMatrix();
 
     // Read raw RGBA pixels (WebGL: y=0 at bottom)
     const raw = new Uint8Array(W * H * 4);

@@ -1,5 +1,6 @@
 
 - visualized cylinders don't match
+- fix fallback plan - it should still have depth buffer
 - it moved green block to red mat, but it should have moved red block to blue mat
 - web version drag to move obstacles or blocks
 
