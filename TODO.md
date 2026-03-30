@@ -1,6 +1,7 @@
 
 - Test if Gemini ER can recognize obstacles and give us info about it
   - extents or corners of objects
+- web version drag to move obstacles or blocks
 
 ## Non-IK solution
 
