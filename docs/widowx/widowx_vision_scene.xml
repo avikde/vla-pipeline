@@ -47,6 +47,14 @@
       <geom name="red_target_geom" type="cylinder" size="0.05 0.001" rgba="0.8 0.1 0.1 1"/>
     </body>
 
+    <!-- Obstacles between red block and blue target -->
+    <body name="obstacle_1" pos="0.22 -0.02 0.05">
+      <geom name="obstacle_1_geom" type="cylinder" size="0.015 0.05" rgba="0.15 0.15 0.15 1"/>
+    </body>
+    <body name="obstacle_2" pos="0.23 0.05 0.05">
+      <geom name="obstacle_2_geom" type="cylinder" size="0.015 0.05" rgba="0.15 0.15 0.15 1"/>
+    </body>
+
     <!-- Cameras matching X-VLA WidowX training setup (BridgeData) -->
 
     <!-- Primary camera - over-the-(right)-shoulder view (BridgeData primary camera) -->
