@@ -198,6 +198,8 @@ async function runPipeline(useApiKey) {
   try {
     // Snap to primary camera, grab the frame, then restore the free cam view
     log('Grabbing primary camera image...', 'info');
+    mujocoScene.updateObstacleMarkers([]);
+    mujocoScene.updateWaypointMarkers([], 0);
     mujocoScene.updateVisuals();
     mujocoScene.renderPrimaryCamera();
     const imageBase64 = mujocoScene.capturePrimaryImage();

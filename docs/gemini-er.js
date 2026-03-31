@@ -204,8 +204,9 @@ Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y
   log(`Detections: ${detections.length} objects`, 'success');
 
   // Prompt 2: task-level plan using full detection list
+  // Gemini detection points are [y, x]; move(x, y) takes x first — swap here.
   const detectionsJson = JSON.stringify(
-    detections.map(d => ({ label: d.label, type: d.type, point: d.point })),
+    detections.map(d => ({ label: d.label, type: d.type, point: [d.point[1], d.point[0]] })),
   );
   const prompt2 = `You are a robotic arm with six degrees-of-freedom. You have the
 following functions available to you:
@@ -218,7 +219,7 @@ def move(x, y, high):
 def setGripperState(opened):
   # Opens the gripper if opened=True, otherwise closes it.
 
-Objects detected on the table (normalized 0-1000 pixel coordinates, [y, x] format):
+Objects detected on the table (normalized 0-1000 pixel coordinates, [x, y] format matching move(x, y)):
 ${detectionsJson}
 
 Task: ${task}
