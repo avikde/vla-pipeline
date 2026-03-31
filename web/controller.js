@@ -6,7 +6,7 @@
  */
 
 import {
-  vec3, sub, clamp, ee6dToPosRot, gripperActionToCtrl,
+  vec3, sub, scale, norm, clamp, ee6dToPosRot, gripperActionToCtrl,
   matMul, matTranspose, matEye, matSolve,
   m3get, m3trace, m3mul, m3transpose,
 } from './math-utils.js';
@@ -44,11 +44,6 @@ export class Controller {
     this._jntIds = ARM_JOINTS.map(n => model.jnt(n).id);
     this._qposAddrs = this._jntIds.map(j => model.jnt_qposadr[j]);
     this._dofAddrs = this._jntIds.map(j => model.jnt_dofadr[j]);
-
-    // Home joint positions for null-space regularization
-    const homeCtrl = model.key('home').ctrl;
-    this._homeQ = new Float64Array(6);
-    for (let i = 0; i < 6; i++) this._homeQ[i] = homeCtrl[i];
 
     this._nv = model.nv;
 
@@ -100,7 +95,10 @@ export class Controller {
     this._mj.mj_forward(this._model, scratch);
 
     const eePos = this._eePos(scratch);
-    const posErr = sub(targetPos, eePos);
+    const MAX_POS_ERR = 0.05; // m — caps dq magnitude without explicit clamping
+    const rawPosErr = sub(targetPos, eePos);
+    const posErrNorm = norm(rawPosErr);
+    const posErr = posErrNorm > MAX_POS_ERR ? scale(rawPosErr, MAX_POS_ERR / posErrNorm) : rawPosErr;
 
     this._mj.mj_jacBody(this._model, scratch, this._jacpBuf, this._jacrBuf, this._eeId);
     const jacpFull = this._jacpBuf.GetView();
@@ -173,20 +171,6 @@ export class Controller {
       let s = 0;
       for (let j = 0; j < m; j++) s += Jpinv[i * m + j] * err[j];
       dq[i] = s;
-    }
-
-    // Home bias (null-space regularization)
-    const HOME_BIAS = 0.02;
-    for (let i = 0; i < nArm; i++)
-      dq[i] += HOME_BIAS * (this._homeQ[i] - this._q[i]);
-
-    // Clamp step size
-    const MAX_DQ = 0.1;
-    let dqMax = 0;
-    for (let i = 0; i < nArm; i++) dqMax = Math.max(dqMax, Math.abs(dq[i]));
-    if (dqMax > MAX_DQ) {
-      const s = MAX_DQ / dqMax;
-      for (let i = 0; i < nArm; i++) dq[i] *= s;
     }
 
     // Advance internal joint reference and clamp to joint limits
