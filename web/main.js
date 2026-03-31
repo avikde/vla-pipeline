@@ -276,6 +276,9 @@ async function runPipeline(useApiKey) {
 }
 
 // --- UI wiring ---
+taskInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !btnRun.disabled) btnRun.click();
+});
 btnRun.addEventListener('click', () => {
   if (!apiKeyInput.value.trim()) {
     log('Please enter a Gemini API key.', 'warn');
