@@ -181,6 +181,15 @@ export function matSolve(A, n, B, m) {
   return X;
 }
 
+/** Minimum-norm least-squares solution: J^T (J J^T)^{-1} err.
+ * J is (m x n), err is (m), returns dq (n). */
+export function matLeastSquares(J, m, n, err) {
+  const Jt = matTranspose(J, m, n);
+  const JJt = matMul(J, m, n, Jt, m);
+  const sol = matSolve(JJt, m, err, 1);
+  return matMul(Jt, n, m, sol, 1);
+}
+
 /** Vector L2 norm for Float64Array of any length. */
 export function vecNorm(v) {
   let s = 0;

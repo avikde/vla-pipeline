@@ -7,7 +7,7 @@
 
 import {
   vec3, sub, scale, norm, clamp, ee6dToPosRot, gripperActionToCtrl,
-  matMul, matTranspose, matEye, matSolve,
+  matMul, matTranspose, matLeastSquares,
   m3get, m3trace, m3mul, m3transpose,
 } from './math-utils.js';
 
@@ -24,12 +24,10 @@ export class Controller {
    * @param {object} options
    */
   constructor(mj, model, {
-    damping = 1e-4,
     useOrientation = true,
   } = {}) {
     this._mj = mj;
     this._model = model;
-    this._damping = damping;
     this._useOrientation = useOrientation;
 
     // Allocate scratch data
@@ -142,23 +140,7 @@ export class Controller {
       err = new Float64Array([posErr[0], posErr[1], posErr[2]]);
     }
 
-    // Damped pseudo-inverse: dq = J^T (J J^T + lambda I)^{-1} err
-    const Jt = matTranspose(J, m, nArm);
-    const JJt = matMul(J, m, nArm, Jt, m);
-    const lambdaI = matEye(m);
-    for (let i = 0; i < m * m; i++) lambdaI[i] *= this._damping;
-    const JJtDamped = new Float64Array(m * m);
-    for (let i = 0; i < m * m; i++) JJtDamped[i] = JJt[i] + lambdaI[i];
-    const Im = matEye(m);
-    const JJtInv = matSolve(JJtDamped, m, Im, m);
-    const Jpinv = matMul(Jt, nArm, m, JJtInv, m);
-
-    const dq = new Float64Array(nArm);
-    for (let i = 0; i < nArm; i++) {
-      let s = 0;
-      for (let j = 0; j < m; j++) s += Jpinv[i * m + j] * err[j];
-      dq[i] = s;
-    }
+    const dq = matLeastSquares(J, m, nArm, err);
 
     // qpos + dq, clamped to joint limits
     const ctrlTarget = new Float32Array(7);
