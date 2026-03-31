@@ -17,7 +17,7 @@ const EE_BODY = 'wx250s/gripper_link';
 const LEFT_FINGER_BODY = 'wx250s/left_finger_link';
 const RIGHT_FINGER_BODY = 'wx250s/right_finger_link';
 
-export class WidowXController {
+export class Controller {
   /**
    * @param {object} mj - MuJoCo WASM module
    * @param {object} model - MjModel
@@ -85,7 +85,7 @@ export class WidowXController {
    * @param {Float64Array|Float32Array} action10d - [xyz(3), rot6d(6), gripper(1)]
    * @returns {Float32Array} ctrl_target [6 joints + 1 gripper]
    */
-  solveIk(qpos, action10d) {
+  calcPosTarget(qpos, action10d) {
     if (!this._q) this.reset(qpos);
 
     const { pos: targetPos, rot: targetRot } = ee6dToPosRot(action10d);
