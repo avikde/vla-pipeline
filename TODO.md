@@ -1,6 +1,5 @@
 
 - planner to avoid the obstacles
-- add license
 - reorganize the top bar
 - web version drag to move obstacles or blocks
 

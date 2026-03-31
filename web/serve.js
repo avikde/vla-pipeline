@@ -40,5 +40,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Serving docs/ on http://localhost:${PORT} (with COOP/COEP headers)`);
+  console.log(`Serving web/ on http://localhost:${PORT} (with COOP/COEP headers)`);
 });
