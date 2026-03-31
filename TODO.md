@@ -2,22 +2,6 @@
 - planner to avoid the obstacles
 - reorganize the top bar
 
-## Non-IK solution
-
-The IK iteratively
-
-- finds a step in EE coords toward the target, `err`
-- Uses mujoco to get FK and Jac s.t. `J*dq = v`
-- Finds dq in joint coords corresponding `dq = J^{dag} err`
-- Steps in the dq direction -> effectively vel control
-
-Vel control solution
-
-- We just don't need to have the IK iterate
-- Step in the correct direction
-- Could use just `J^T`, or the pinv
-- For pos control robot, have internal `q` reference
-
 ## Planner
 
 Have a local planner to avoid obstacles

@@ -2,7 +2,7 @@
  * WidowX + Gemini ER pick-and-place demo.
  *
  * Entry point: initializes MuJoCo WASM + Three.js, wires up UI,
- * runs Gemini ER detection/planning, and animates the arm via IK.
+ * runs Gemini ER detection/planning, and animates the arm via velocity control.
  */
 
 // All module imports are dynamic (inside init) to avoid saturating
@@ -37,14 +37,14 @@ function log(msg, level = '') {
 
 // --- State ---
 let mujocoScene = null;
-let ikController = null;
+let controller = null;
 let waypoints = [];
 let currentWpIdx = 0;
 let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
 let animationId = null;
 
-// IK convergence: steps per waypoint before moving on
+// Steps per waypoint before moving on
 const STEPS_PER_WAYPOINT = 200;
 const STEPS_GRIPPER_CHANGE = 500; // extra dwell for gripper open/close to settle
 const PHYSICS_STEPS_PER_FRAME = 5;
@@ -58,7 +58,7 @@ apiKeyInput.addEventListener('input', () => {
 
 // --- Init ---
 // Lazy-loaded modules (populated in init)
-let initScene, WidowXController, detectAndPlan, planToWaypoints;
+let initScene, Controller, detectAndPlan, planToWaypoints;
 let eulerToRotationMatrix, rotationMatrixTo6d;
 
 async function init() {
@@ -67,8 +67,8 @@ async function init() {
     log('Loading modules...', 'info');
     const sceneModule = await import('./mujoco-scene.js');
     initScene = sceneModule.initScene;
-    const ikModule = await import('./ik-solver.js');
-    WidowXController = ikModule.WidowXController;
+    const controllerModule = await import('./controller.js');
+    Controller = controllerModule.Controller;
     const geminiModule = await import('./gemini-er.js');
     detectAndPlan = geminiModule.detectAndPlan;
     planToWaypoints = geminiModule.planToWaypoints;
@@ -85,7 +85,7 @@ async function init() {
       },
     );
 
-    ikController = new WidowXController(mujocoScene.mj, mujocoScene.model);
+    controller = new Controller(mujocoScene.mj, mujocoScene.model);
 
     mujocoScene.setVisibleBodies(null); // show all
 
@@ -138,10 +138,10 @@ function animate() {
   if (currentWpIdx < waypoints.length) {
     const wp = waypoints[currentWpIdx];
     const action = waypointToAction10d(wp);
-    const ctrlTarget = ikController.solveIk(mujocoScene.data.qpos, action);
+    const ctrlTarget = controller.calcPosTarget(mujocoScene.data.qpos, action);
 
     if (ctrlTarget) {
-      WidowXController.applyControl(mujocoScene.data.ctrl, ctrlTarget);
+      Controller.applyControl(mujocoScene.data.ctrl, ctrlTarget);
     }
 
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
