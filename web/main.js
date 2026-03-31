@@ -2,7 +2,7 @@
  * WidowX + Gemini ER pick-and-place demo.
  *
  * Entry point: initializes MuJoCo WASM + Three.js, wires up UI,
- * runs Gemini ER detection/planning, and animates the arm via IK.
+ * runs Gemini ER detection/planning, and animates the arm via velocity control.
  */
 
 // All module imports are dynamic (inside init) to avoid saturating
@@ -44,7 +44,7 @@ let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
 let animationId = null;
 
-// IK convergence: steps per waypoint before moving on
+// Steps per waypoint before moving on
 const STEPS_PER_WAYPOINT = 200;
 const STEPS_GRIPPER_CHANGE = 500; // extra dwell for gripper open/close to settle
 const PHYSICS_STEPS_PER_FRAME = 5;
@@ -265,6 +265,7 @@ async function runPipeline(useApiKey) {
     mujocoScene.render();
 
     // Start animation
+    ikController.reset(mujocoScene.data.qpos);
     mujocoScene.simRunning = true;
     statusSim.textContent = 'Sim: running';
     animate();
