@@ -835,11 +835,22 @@ export class MujocoScene {
     if (this._drag.type === 'block') {
       this._drag.targetX = newX;
       this._drag.targetY = newY;
+      // Teleport immediately so mj_forward sees the new position
+      const qa = this._drag.qposAddr, da = this._drag.dofAddr;
+      this.data.qpos[qa] = newX;
+      this.data.qpos[qa + 1] = newY;
+      this.data.qpos[qa + 2] = this._drag.objectZ;
+      for (let i = 0; i < 6; i++) this.data.qvel[da + i] = 0;
     } else {
       const mi = this._drag.mocapIdx;
       this.data.mocap_pos[mi * 3]     = newX;
       this.data.mocap_pos[mi * 3 + 1] = newY;
     }
+    // Update xpos from the position write, then redraw.
+    // Needed in all states: idle (no animate loop), free-cam (no mj_step), running (immediate feedback).
+    this.mj.mj_forward(this.model, this.data);
+    this.updateVisuals();
+    this.render();
   }
 
   _onMouseUp(e) {

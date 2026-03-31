@@ -1,7 +1,6 @@
 
 - planner to avoid the obstacles
 - reorganize the top bar
-- web version drag to move obstacles or blocks
 
 ## Non-IK solution
 
