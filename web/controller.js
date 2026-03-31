@@ -62,22 +62,19 @@ export class Controller {
   }
 
   /**
-   * Compute joint-space repulsive gradient from obstacles.
-   * For each obstacle, uses an ellipsoidal potential 1/(r-1) where r is the
-   * normalized distance (r=1 at the obstacle surface).
+   * Compute EE-space repulsive gradient from obstacles: -∂b/∂p (3D vector).
+   * Caller maps to joint space via Jp^+.
    *
    * @param {object} scratch - MjData with fwd kinematics already run
-   * @param {Float64Array} Jp - Position Jacobian (3 x nArm, row-major)
-   * @param {Array} obstacles - [{center, horizontal_size, vertical_size}, ...]
-   * @returns {Float64Array} Jo (nArm) joint-space repulsive gradient
+   * @param {Array} obstacles - [{center, horizontal_size, vertical_size, type}, ...]
+   * @returns {Float64Array} g_p (3) — repulsive direction in EE position space
    */
-  _obstacleGradient(scratch, Jp, obstacles) {
-    const OBST_GAIN = 0.01;
-    const OBST_CUTOFF = 3.0; // normalized distance; skip if farther
-    const EPSILON = 0.01;    // prevents blow-up at r=1
-    const nArm = 6; // number of DOFs
+  _obstacleGradient(scratch, obstacles) {
+    const OBST_GAIN = 0.0001;
+    const OBST_CUTOFF = 3.0; // normalized distance (1 = surface); skip if farther
+    const EPSILON = 0.01;    // clamps rSafe away from zero at the surface
 
-    const Jo = new Float64Array(nArm);
+    const g_p = new Float64Array(3);
     const eePos = this._eePos(scratch);
 
     for (const obs of obstacles) {
@@ -89,30 +86,20 @@ export class Controller {
       const dy = eePos[1] - center[1];
       const dz = eePos[2] - center[2];
 
+      // r=1 on ellipsoid surface, r<1 inside, r>1 outside
       const r = Math.sqrt((dx / hs) ** 2 + (dy / hs) ** 2 + (dz / vs) ** 2);
       if (r > OBST_CUTOFF || r < 1e-9) continue;
-      // r = 1 means on the boundary
+
       const rSafe = Math.max(r - 1.0, EPSILON);
-      const b = Math.min(1.0 / rSafe, 1.0 / EPSILON); // clamp at max repulsion
+      const b = 1.0 / (rSafe * rSafe);
 
-      // We want -∂b/∂ee to repel (push away from increasing potential).
-      // ∂b/∂r = -b², ∂r/∂ee_x = (dx/hs²)/r
-      // -∂b/∂ee_x = +b² * (dx/hs²)/r  → positive when dx>0 (push away)
-      const scale = b * b / r;
-      const gx = scale * (dx / (hs * hs));
-      const gy = scale * (dy / (hs * hs));
-      const gz = scale * (dz / (vs * vs));
-
-      // Jo_joints = Jp^T * [gx, gy, gz] * OBST_GAIN
-      for (let j = 0; j < nArm; j++) {
-        Jo[j] += OBST_GAIN * (
-          Jp[0 * nArm + j] * gx +
-          Jp[1 * nArm + j] * gy +
-          Jp[2 * nArm + j] * gz
-        );
-      }
+      // -∂b/∂p_x = +2b/(rSafe·r) · (dx/hs²)  (repels: positive when dx>0)
+      const scale = OBST_GAIN * 2.0 * b / (rSafe * r);
+      g_p[0] += scale * (dx / (hs * hs));
+      g_p[1] += scale * (dy / (hs * hs));
+      g_p[2] += scale * (dz / (vs * vs));
     }
-    return Jo;
+    return g_p;
   }
 
   /**
@@ -196,9 +183,12 @@ export class Controller {
     }
 
     const dq_task = matLeastSquares(J, m, nArm, err);
-    const Jo = this._obstacleGradient(scratch, Jp, obstacles);
+    // Map EE-space repulsive gradient to joint space via Jp^+ (IK step),
+    // not Jp^T — we want the joint motion that produces the EE displacement.
+    const g_p = this._obstacleGradient(scratch, obstacles);
+    const Jo = matLeastSquares(Jp, 3, nArm, g_p);
     const dq = new Float64Array(nArm);
-    for (let i = 0; i < nArm; i++) dq[i] = dq_task[i] + Jo[i];
+    for (let i = 0; i < nArm; i++) dq[i] = dq_task[i];// + Jo[i];
 
     // qpos + dq, clamped to joint limits
     const ctrlTarget = new Float32Array(7);
