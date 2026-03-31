@@ -223,6 +223,8 @@ export class MujocoScene {
     // Camera (will be synced to MuJoCo primary camera by default)
     const aspect = canvas.clientWidth / canvas.clientHeight;
     this.camera = new THREE.PerspectiveCamera(39, aspect, 0.01, 10);
+    // Scene is Z-up (MuJoCo convention) — set before OrbitControls is created
+    this.camera.up.set(0, 0, 1);
     // Default: lock to MuJoCo "primary" camera
     this._syncCameraFromMujoco('primary');
 
@@ -323,8 +325,6 @@ export class MujocoScene {
     this.controls.enabled = enabled;
     if (enabled) {
       this.camera.matrixAutoUpdate = true;
-      // Scene is Z-up (MuJoCo convention)
-      this.camera.up.set(0, 0, 1);
       // Over-the-shoulder position: behind (negative Y), elevated (positive Z), slightly right
       this.camera.position.set(0.5, -0.4, 0.6);
       const target = new THREE.Vector3(0.2, 0.05, 0.05);
