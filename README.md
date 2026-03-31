@@ -1,8 +1,4 @@
-# VLA Pipeline testing for Robot Arm
-
-Vision-Language-Action model integration with low-level control using MuJoCo simulation.
-
-Software: PyTorch 2.10.0 with CUDA 12.8, LeRobot 0.4.3 with X-VLA, MuJoCo.
+# Embodied reasoning hierarchical robotics pipeline demo
 
 Blog posts for context:
 - [The architecture behind “end-to-end” robotics pipelines](https://www.avikde.me/p/the-architecture-behind-end-to-end)
@@ -19,40 +15,16 @@ Try the browser-based demo with MuJoCo WASM + Three.js, no installation required
 - Click "Run Demo" or "Use Cached Plan" and watch the pick-and-place in action!
 - Use the mouse to orbit the camera, and check the console for debug logs
 
-## Install
+## Develop locally (optional)
+
+The `docs/` directory contains a fully client-side embodied reasoning demo using MuJoCo WASM + Three.js. No backend required.
 
 ```sh
 git clone https://github.com/avikde/vla-pipeline.git
 cd vla-pipeline
 ```
 
-Linux/WSL system dependencies:
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-venv python3-pip build-essential git
-```
-
-Python setup:
-```bash
-python3.13 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install mujoco huggingface_hub hf_xet "lerobot[xvla]" google-genai
-# For NVIDIA GPU (run after lerobot):
-pip uninstall torch torchvision -y && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-```
-
-On Windows, use `python` not `python3`. On Mac, use `mjpython`.
-
-Verify:
-```bash
-python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
-```
-
-## Running
-
-The `docs/` directory contains a fully client-side embodied reasoning demo using MuJoCo WASM + Three.js. No backend required.
+`brew install node`
 
 ```bash
 node docs/serve.js
