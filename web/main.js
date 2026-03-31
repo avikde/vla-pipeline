@@ -44,10 +44,16 @@ let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
 let animationId = null;
 
-// Steps per waypoint before moving on
-const STEPS_PER_WAYPOINT = 200;
-const STEPS_GRIPPER_CHANGE = 500; // extra dwell for gripper open/close to settle
+// Waypoint convergence thresholds
+const CONVERGE_POS_THRESH = 0.015; // m — advance when EE is within 1.5 cm of target
+const MIN_STEPS_PER_WAYPOINT = 50; // prevent instant skip if arm starts near target
+const MAX_STEPS_PER_WAYPOINT = 800; // safety timeout if arm can't reach
+const STEPS_GRIPPER_CHANGE = 500; // step-based dwell for gripper open/close to settle
 const PHYSICS_STEPS_PER_FRAME = 5;
+
+// Cached body IDs (set after scene init)
+let lfBodyId = null;
+let rfBodyId = null;
 
 // --- Restore API key from localStorage ---
 const savedKey = localStorage.getItem('gemini-api-key');
@@ -86,6 +92,8 @@ async function init() {
     );
 
     controller = new Controller(mujocoScene.mj, mujocoScene.model);
+    lfBodyId = mujocoScene.model.body('wx250s/left_finger_link').id;
+    rfBodyId = mujocoScene.model.body('wx250s/right_finger_link').id;
 
     mujocoScene.setVisibleBodies(null); // show all
 
@@ -150,8 +158,24 @@ function animate() {
       wpSteps++;
     }
 
-    const dwell = wp.gripperChange ? STEPS_GRIPPER_CHANGE : STEPS_PER_WAYPOINT;
-    if (wpSteps >= dwell) {
+    // Compute current EE position (finger midpoint)
+    const d = mujocoScene.data;
+    const ex = (d.xpos[lfBodyId * 3] + d.xpos[rfBodyId * 3]) / 2;
+    const ey = (d.xpos[lfBodyId * 3 + 1] + d.xpos[rfBodyId * 3 + 1]) / 2;
+    const ez = (d.xpos[lfBodyId * 3 + 2] + d.xpos[rfBodyId * 3 + 2]) / 2;
+
+    let shouldAdvance;
+    if (wp.gripperChange) {
+      shouldAdvance = wpSteps >= STEPS_GRIPPER_CHANGE;
+    } else {
+      const dx = ex - wp.xyz[0], dy = ey - wp.xyz[1], dz = ez - wp.xyz[2];
+      const posErr = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const timedOut = wpSteps >= MAX_STEPS_PER_WAYPOINT;
+      if (timedOut && wpSteps === MAX_STEPS_PER_WAYPOINT) log(`Waypoint ${currentWpIdx} timeout (err=${posErr.toFixed(3)}m)`, 'warn');
+      shouldAdvance = wpSteps >= MIN_STEPS_PER_WAYPOINT && (posErr < CONVERGE_POS_THRESH || timedOut);
+    }
+
+    if (shouldAdvance) {
       wpSteps = 0;
       currentWpIdx++;
       updateWaypointUI();
@@ -159,6 +183,9 @@ function animate() {
         log(`Waypoint ${currentWpIdx}/${waypoints.length}`, 'info');
       }
     }
+
+    // Status bar EE display (reuse computed values)
+    statusEe.textContent = `EE: (${ex.toFixed(3)}, ${ey.toFixed(3)}, ${ez.toFixed(3)})`;
   } else {
     // Done with all waypoints
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
@@ -180,13 +207,6 @@ function animate() {
 
   // Status bar
   statusStep.textContent = `Step: ${simStep}`;
-  const d = mujocoScene.data;
-  const lfId = mujocoScene.model.body('wx250s/left_finger_link').id;
-  const rfId = mujocoScene.model.body('wx250s/right_finger_link').id;
-  const ex = (d.xpos[lfId * 3] + d.xpos[rfId * 3]) / 2;
-  const ey = (d.xpos[lfId * 3 + 1] + d.xpos[rfId * 3 + 1]) / 2;
-  const ez = (d.xpos[lfId * 3 + 2] + d.xpos[rfId * 3 + 2]) / 2;
-  statusEe.textContent = `EE: (${ex.toFixed(3)}, ${ey.toFixed(3)}, ${ez.toFixed(3)})`;
 
   animationId = requestAnimationFrame(animate);
 }
