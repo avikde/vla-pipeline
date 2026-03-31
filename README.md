@@ -52,25 +52,7 @@ python -c "import lerobot; print('LeRobot version:', lerobot.__version__)"
 
 ## Running
 
-### Python demo (opens MuJoCo viewer)
-
-```bash
-python scripts/demo_widowx.py
-
-# Flags:
-# -p / --planner        Action source: xvla, hardcoded, gemini-er (default)
-# -v / --verbose        Per-step debug output
-# -d / --dry-run        Visualize trajectory without running IK/control
-# -f / --free-cam       Free orbit camera (default: locked to primary camera)
-# --step-size 0.005     Reference policy movement speed (m/step)
-# --kp 10               Override proportional gain for arm actuators
-```
-
-For `-p gemini-er`, get an API key and set the `GEMINI_API_KEY` environment variable as described in https://ai.google.dev/gemini-api/docs/api-key.
-
-### Browser demo local version
-
-The `docs/` directory contains a fully client-side port of the Gemini ER pick-and-place demo using MuJoCo WASM + Three.js. No backend required.
+The `docs/` directory contains a fully client-side embodied reasoning demo using MuJoCo WASM + Three.js. No backend required.
 
 ```bash
 node docs/serve.js
@@ -78,21 +60,6 @@ node docs/serve.js
 ```
 
 ## Architecture
-
-### Inference loop (`demo_widowx.py`)
-1. Render `primary` camera at 4:3 (342x256), squish to 256x256 to match BridgeData distortion
-2. Pack images + 8D proprioceptive state (XYZ, RPY, pad, gripper) + language tokens into observation
-3. Run X-VLA or Gemini ER planner -> 20D action vector (2 timesteps x 10D)
-4. Feed EE target to Jacobian IK (`widowx_control.py`) -> joint angles -> MuJoCo actuators
-
-### Key modules
-
-| Module | Role |
-|--------|------|
-| `scripts/xvla_policy.py` | Policy loading, observation building, action decoding |
-| `scripts/widowx_control.py` | `WidowXController`: damped least-squares Jacobian IK, 6-DOF, gripper mapping |
-| `scripts/gemini_er_policy.py` | Gemini ER object detection + camera calibration (pixel->3D ray-plane intersection) |
-| `docs/widowx/` | MuJoCo XML models + STL meshes; `widowx_vision_scene.xml` is the primary scene |
 
 ### Browser demo (`docs/`)
 
@@ -106,17 +73,9 @@ node docs/serve.js
 
 Stack: [`@mujoco/mujoco`](https://www.npmjs.com/package/@mujoco/mujoco) WASM (CDN), [Three.js](https://threejs.org/) v0.170 (CDN), Gemini API via `fetch()`.
 
-### Shared
+### WidowX
 
 **Action representation (EE6D):** 10D per timestep = [x, y, z, r1x, r1y, r1z, r2x, r2y, r2z, gripper]. The 6D rotation uses two columns of the rotation matrix (third reconstructed via cross product).
-
-**Model checkpoint:** `lerobot/xvla-widowx` (HuggingFace, fine-tuned on BridgeData). Downloaded automatically on first run.
-
-## Jupyter Notebook
-
-X-VLA with WidowX arm - prompt to trajectory visualization:
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/avikde/vla-pipeline/blob/main/xvla_widowx_vis_traj.ipynb)
 
 ## Acknowledgements
 
