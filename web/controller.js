@@ -1,8 +1,8 @@
 /**
  * WidowX velocity controller — single damped-pinv step per animation frame.
  *
- * Maintains an internal joint reference q. Each call advances q one step
- * toward the target; the animation loop provides the iteration.
+ * Each call computes dq from current qpos and returns qpos + dq as the
+ * position control target; the animation loop provides the iteration.
  */
 
 import {
@@ -50,15 +50,6 @@ export class Controller {
     // Pre-allocate Jacobian buffers (mj_jacBody requires WASM-owned memory)
     this._jacpBuf = new mj.DoubleBuffer(3 * this._nv);
     this._jacrBuf = new mj.DoubleBuffer(3 * this._nv);
-
-    // Internal joint reference — initialized on first solveIk call or reset()
-    this._q = null;
-  }
-
-  /** Reset internal joint reference from actual qpos (call before each new run). */
-  reset(qpos) {
-    this._q = new Float64Array(6);
-    for (let i = 0; i < 6; i++) this._q[i] = qpos[this._qposAddrs[i]];
   }
 
   /** Compute EE position: finger midpoint. */
@@ -73,23 +64,19 @@ export class Controller {
   }
 
   /**
-   * Advance internal q one step toward the target EE pose.
-   * Returns Float32Array(7) ctrl target.
+   * Compute one vel-control step from current qpos toward the target EE pose.
+   * Returns Float32Array(7) ctrl target = qpos + dq.
    *
-   * @param {Float64Array|Float32Array} qpos - Current generalized positions (for lazy init)
+   * @param {Float64Array|Float32Array} qpos - Current generalized positions
    * @param {Float64Array|Float32Array} action10d - [xyz(3), rot6d(6), gripper(1)]
    * @returns {Float32Array} ctrl_target [6 joints + 1 gripper]
    */
   calcPosTarget(qpos, action10d) {
-    if (!this._q) this.reset(qpos);
-
     const { pos: targetPos, rot: targetRot } = ee6dToPosRot(action10d);
     const gripperVal = action10d[9];
 
     const scratch = this._scratch;
-    // Set scratch from internal _q (not actual qpos — we drive _q as the reference)
     for (let i = 0; i < qpos.length; i++) scratch.qpos[i] = qpos[i];
-    for (let i = 0; i < 6; i++) scratch.qpos[this._qposAddrs[i]] = this._q[i];
     for (let i = 0; i < scratch.qvel.length; i++) scratch.qvel[i] = 0;
 
     this._mj.mj_forward(this._model, scratch);
@@ -173,15 +160,16 @@ export class Controller {
       dq[i] = s;
     }
 
-    // Advance internal joint reference and clamp to joint limits
-    for (let i = 0; i < nArm; i++) {
-      this._q[i] += dq[i];
-      const jid = this._jntIds[i];
-      this._q[i] = clamp(this._q[i], this._model.jnt_range[jid * 2], this._model.jnt_range[jid * 2 + 1]);
-    }
-
+    // qpos + dq, clamped to joint limits
     const ctrlTarget = new Float32Array(7);
-    for (let i = 0; i < 6; i++) ctrlTarget[i] = this._q[i];
+    for (let i = 0; i < nArm; i++) {
+      const jid = this._jntIds[i];
+      ctrlTarget[i] = clamp(
+        qpos[this._qposAddrs[i]] + dq[i],
+        this._model.jnt_range[jid * 2],
+        this._model.jnt_range[jid * 2 + 1],
+      );
+    }
     ctrlTarget[6] = gripperActionToCtrl(gripperVal);
     return ctrlTarget;
   }

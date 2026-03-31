@@ -265,7 +265,6 @@ async function runPipeline(useApiKey) {
     mujocoScene.render();
 
     // Start animation
-    controller.reset(mujocoScene.data.qpos);
     mujocoScene.simRunning = true;
     statusSim.textContent = 'Sim: running';
     animate();
