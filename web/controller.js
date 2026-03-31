@@ -72,6 +72,11 @@ export class Controller {
    * @returns {Float32Array} ctrl_target [6 joints + 1 gripper]
    */
   calcPosTarget(qpos, action10d) {
+    const MAX_POS_ERR = 0.2; // m — caps dq magnitude without explicit clamping
+    const MAX_ROT_ERR = 1.0; // rad — analogous to MAX_POS_ERR
+    const ORI_WEIGHT = 1.5; // scale orientation [rad] err vs. pos [m]
+    const MAX_DQ = 0.3; // rad/frame for each joint
+
     const { pos: targetPos, rot: targetRot } = ee6dToPosRot(action10d);
     const gripperVal = action10d[9];
 
@@ -82,7 +87,6 @@ export class Controller {
     this._mj.mj_forward(this._model, scratch);
 
     const eePos = this._eePos(scratch);
-    const MAX_POS_ERR = 0.05; // m — caps dq magnitude without explicit clamping
     const rawPosErr = sub(targetPos, eePos);
     const posErrNorm = norm(rawPosErr);
     const posErr = posErrNorm > MAX_POS_ERR ? scale(rawPosErr, MAX_POS_ERR / posErrNorm) : rawPosErr;
@@ -117,16 +121,19 @@ export class Controller {
       let rotErr;
       if (angle > 1e-6) {
         const s = 1.0 / (2.0 * Math.sin(angle));
-        rotErr = vec3(
+        const rawRotErr = vec3(
           angle * s * (m3get(Rerr, 2, 1) - m3get(Rerr, 1, 2)),
           angle * s * (m3get(Rerr, 0, 2) - m3get(Rerr, 2, 0)),
           angle * s * (m3get(Rerr, 1, 0) - m3get(Rerr, 0, 1)),
         );
+        const rotErrNorm = norm(rawRotErr);
+        rotErr = rotErrNorm > MAX_ROT_ERR
+          ? scale(rawRotErr, MAX_ROT_ERR / rotErrNorm)
+          : rawRotErr;
       } else {
         rotErr = vec3(0, 0, 0);
       }
 
-      const ORI_WEIGHT = 0.2;
       m = 6;
       J = new Float64Array(6 * nArm);
       J.set(Jp, 0);
@@ -158,6 +165,13 @@ export class Controller {
       let s = 0;
       for (let j = 0; j < m; j++) s += Jpinv[i * m + j] * err[j];
       dq[i] = s;
+    }
+
+    // Clamp total step size to limit arm speed
+    const dqNorm = Math.sqrt(dq.reduce((s, v) => s + v * v, 0));
+    if (dqNorm > MAX_DQ) {
+      const dqScale = MAX_DQ / dqNorm;
+      for (let i = 0; i < nArm; i++) dq[i] *= dqScale;
     }
 
     // qpos + dq, clamped to joint limits
