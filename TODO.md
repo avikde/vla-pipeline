@@ -1,5 +1,4 @@
 
-- dropping blocks issue - compare against main
 - planner to avoid the obstacles
 - add license
 - reorganize the top bar

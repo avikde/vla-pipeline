@@ -285,7 +285,15 @@ btnRun.addEventListener('click', () => {
   runPipeline(true);
 });
 
-btnPrebaked.addEventListener('click', () => runPipeline(false));
+btnPrebaked.addEventListener('click', () => {
+  const refreshText = 'Refresh to reset';
+  if (btnPrebaked.textContent !== refreshText) {
+    btnPrebaked.textContent = refreshText;
+    runPipeline(false);
+  } else {
+    location.reload();
+  }
+});
 
 chkFreeCam.addEventListener('change', () => {
   if (mujocoScene) {
