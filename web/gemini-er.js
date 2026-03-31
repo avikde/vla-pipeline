@@ -62,25 +62,23 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { label: 'red circle target', point: [520, 100],  box_2d: [440,   0, 650, 200], type: 'target' },
-  { label: 'green block',       point: [630, 230],  box_2d: [530, 158, 730, 300], type: 'block' },
-  { label: 'blue circle target',point: [440, 300],  box_2d: [350, 210, 530, 400], type: 'target' },
-  { label: 'dark cylinder obstacle', point: [440, 350], box_2d: [290, 300, 550, 390], type: 'obstacle' },
-  { label: 'dark cylinder obstacle', point: [530, 450], box_2d: [400, 410, 660, 490], type: 'obstacle' },
-  { label: 'blue block',        point: [570, 550],  box_2d: [480, 490, 670, 620], type: 'block' },
-  { label: 'red block',         point: [750, 580],  box_2d: [660, 510, 870, 650], type: 'block' },
+  { label: 'red circle',    point: [500, 100],  box_2d: [436,   0, 650, 200], type: 'obstacle' },
+  { label: 'green block',   point: [637, 230],  box_2d: [530, 158, 742, 305], type: 'obstacle' },
+  { label: 'blue target mat', point: [430, 305], box_2d: [346, 210, 533, 407], type: 'target' },
+  { label: 'dark cylinder', point: [419, 347],  box_2d: [290, 298, 555, 390], type: 'obstacle' },
+  { label: 'dark cylinder', point: [527, 453],  box_2d: [399, 413, 668, 495], type: 'obstacle' },
+  { label: 'blue block',    point: [573, 550],  box_2d: [483, 492, 676, 620], type: 'obstacle' },
+  { label: 'red block',     point: [752, 587],  box_2d: [652, 517, 876, 658], type: 'obstacle' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move',             args: [230, 630, true] },
-  { function: 'setGripperState',  args: [true] },
-  { function: 'move',             args: [230, 630, false] },
-  { function: 'setGripperState',  args: [false] },
-  { function: 'move',             args: [230, 630, true] },
-  { function: 'move',             args: [100, 520, true] },
-  { function: 'move',             args: [100, 520, false] },
-  { function: 'setGripperState',  args: [true] },
-  { function: 'move',             args: [100, 520, true] },
+  { function: 'move',            args: [587, 752, true] },
+  { function: 'move',            args: [587, 752, false] },
+  { function: 'setGripperState', args: [false] },
+  { function: 'move',            args: [587, 752, true] },
+  { function: 'move',            args: [305, 430, true] },
+  { function: 'move',            args: [305, 430, false] },
+  { function: 'setGripperState', args: [true] },
 ];
 
 // --- Gemini API call ---
