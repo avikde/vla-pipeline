@@ -62,22 +62,22 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { label: 'red circle',    point: [500, 100],  box_2d: [436,   0, 650, 200], type: 'obstacle' },
-  { label: 'green block',   point: [637, 230],  box_2d: [530, 158, 742, 305], type: 'obstacle' },
-  { label: 'blue target mat', point: [430, 305], box_2d: [346, 210, 533, 407], type: 'target' },
-  { label: 'dark cylinder', point: [419, 347],  box_2d: [290, 298, 555, 390], type: 'obstacle' },
-  { label: 'dark cylinder', point: [527, 453],  box_2d: [399, 413, 668, 495], type: 'obstacle' },
-  { label: 'blue block',    point: [573, 550],  box_2d: [483, 492, 676, 620], type: 'obstacle' },
-  { label: 'red block',     point: [752, 587],  box_2d: [652, 517, 876, 658], type: 'obstacle' },
+  { label: 'red circle',    point: [540,  99], box_2d: [436,   0, 650, 201], type: 'obstacle' },
+  { label: 'green block',   point: [626, 230], box_2d: [538, 157, 742, 303], type: 'obstacle' },
+  { label: 'blue circle',   point: [438, 308], box_2d: [342, 211, 532, 407], type: 'target' },
+  { label: 'dark cylinder', point: [588, 354], box_2d: [450, 306, 720, 404], type: 'obstacle' },
+  { label: 'dark cylinder', point: [440, 460], box_2d: [314, 420, 582, 497], type: 'obstacle' },
+  { label: 'blue block',    point: [574, 552], box_2d: [480, 488, 676, 616], type: 'obstacle' },
+  { label: 'red block',     point: [758, 584], box_2d: [654, 516, 874, 658], type: 'obstacle' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move',            args: [587, 752, true] },
-  { function: 'move',            args: [587, 752, false] },
+  { function: 'move',            args: [584, 758, true] },
+  { function: 'move',            args: [584, 758, false] },
   { function: 'setGripperState', args: [false] },
-  { function: 'move',            args: [587, 752, true] },
-  { function: 'move',            args: [305, 430, true] },
-  { function: 'move',            args: [305, 430, false] },
+  { function: 'move',            args: [584, 758, true] },
+  { function: 'move',            args: [308, 438, true] },
+  { function: 'move',            args: [308, 438, false] },
   { function: 'setGripperState', args: [true] },
 ];
 
