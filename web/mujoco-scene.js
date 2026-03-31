@@ -266,7 +266,6 @@ export class MujocoScene {
 
     // Drag state (disabled while sim is running)
     this.simRunning = false;
-    this._freeCamActive = false;
     this._drag = null;
     this._raycaster = null;
     this._buildDraggableRegistry();
@@ -330,7 +329,6 @@ export class MujocoScene {
 
   /** Enable/disable free orbit camera. */
   setFreeCam(enabled) {
-    this._freeCamActive = enabled;
     this.controls.enabled = enabled;
     if (enabled) {
       this.camera.matrixAutoUpdate = true;
@@ -807,11 +805,12 @@ export class MujocoScene {
     if (!hit) return;
     const desc = this._findClosestDraggable(hit);
     if (!desc) return;
+    const prevControlsEnabled = this.controls.enabled;
     this.controls.enabled = false;
     const hitAtZ = this._raycastAtZ(e, desc.objectZ);
     const offsetX = hitAtZ ? this.data.xpos[desc.bodyId * 3]     - hitAtZ.x : 0;
     const offsetY = hitAtZ ? this.data.xpos[desc.bodyId * 3 + 1] - hitAtZ.y : 0;
-    this._drag = { ...desc, offsetX, offsetY };
+    this._drag = { ...desc, offsetX, offsetY, prevControlsEnabled };
     this.renderer.domElement.style.cursor = 'grabbing';
   }
 
@@ -840,8 +839,9 @@ export class MujocoScene {
 
   _onMouseUp(e) {
     if (!this._drag) return;
+    const { prevControlsEnabled } = this._drag;
     this._drag = null;
-    this.controls.enabled = this._freeCamActive;
+    this.controls.enabled = prevControlsEnabled;
     this.renderer.domElement.style.cursor = 'default';
   }
 
