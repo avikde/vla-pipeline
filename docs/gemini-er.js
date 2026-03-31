@@ -6,7 +6,7 @@
  */
 
 import {
-  pixelToWorld3d, VLA_WIDTH, VLA_HEIGHT, vec3,
+  pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, sub, norm, dot,
 } from './math-utils.js';
 
 const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
@@ -16,23 +16,71 @@ const TABLE_Z = 0.02;       // table surface z
 const GEMINI_MODEL = 'gemini-robotics-er-1.5-preview';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+/**
+ * Convert a Gemini bounding box + center point to a 3D obstacle cylinder.
+ *
+ * @param {number[]} bbox - [top_y, left_x, bottom_y, right_x] normalized 0-1000
+ * @param {number[]} point - [y, x] center detection normalized 0-1000
+ * @param {Float64Array} camPos - Camera world position (3)
+ * @param {Float64Array} camRot - Camera rotation matrix (9, row-major)
+ * @param {number} fovyDeg - Camera FOV Y in degrees
+ * @param {{ data: Float32Array, width: number, height: number }} [depthBuffer]
+ *   Linear view-space depth in metres, row-major, y=0 at top. When provided,
+ *   use depth at the detected point instead of assuming TABLE_Z.
+ * @returns {{ center: Float64Array, radius: number, height: number }}
+ */
+export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuffer) {
+  const [topY, leftX, bottomY, rightX] = bbox;
+  const [pointNormY, pointNormX] = point;
+  const toPxX = (v) => v / 1000 * VLA_WIDTH;
+  const toPxY = (v) => v / 1000 * VLA_HEIGHT;
+  // Sample view-space depth at the detected center pixel
+  const px = Math.round(pointNormX / 1000 * (depthBuffer.width - 1));
+  const py = Math.round(pointNormY / 1000 * (depthBuffer.height - 1));
+  const viewDepth = depthBuffer.data[py * depthBuffer.width + px];
+  // Camera forward axis in world space: -col2(camRot) (col2 = indices 2,5,8 in row-major)
+  const fwd = vec3(-camRot[2], -camRot[5], -camRot[8]);
+  const projectAtDepth = (normX, normY, depth) => {
+    const ray = pixelToRay(toPxX(normX), toPxY(normY), camPos, camRot, fovyDeg);
+    const t = depth / dot(ray.dir, fwd);
+    return vec3(camPos[0] + t * ray.dir[0], camPos[1] + t * ray.dir[1], camPos[2] + t * ray.dir[2]);
+  };
+  const center = projectAtDepth(pointNormX, pointNormY, viewDepth);
+
+  // Project bbox edges at center depth; compute 3D Euclidean span for each axis.
+  const centerX = (leftX + rightX) / 2;
+  const centerY = (topY + bottomY) / 2;
+  const pLeft  = projectAtDepth(leftX,   centerY, viewDepth);
+  const pRight = projectAtDepth(rightX,  centerY, viewDepth);
+  const pTop   = projectAtDepth(centerX, topY,    viewDepth);
+  const pBot   = projectAtDepth(centerX, bottomY, viewDepth);
+  const horizontal_size = Math.max(norm(sub(pRight, pLeft)), 0.02);
+  const vertical_size   = Math.max(norm(sub(pBot, pTop)),   0.02);
+  return { center, horizontal_size, vertical_size };
+}
+
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { point: [755, 585], label: 'red block' },
-  { point: [461, 311], label: 'blue target' },
+  { label: 'red circle target', point: [520, 100],  box_2d: [440,   0, 650, 200], type: 'target' },
+  { label: 'green block',       point: [630, 230],  box_2d: [530, 158, 730, 300], type: 'block' },
+  { label: 'blue circle target',point: [440, 300],  box_2d: [350, 210, 530, 400], type: 'target' },
+  { label: 'dark cylinder obstacle', point: [440, 350], box_2d: [290, 300, 550, 390], type: 'obstacle' },
+  { label: 'dark cylinder obstacle', point: [530, 450], box_2d: [400, 410, 660, 490], type: 'obstacle' },
+  { label: 'blue block',        point: [570, 550],  box_2d: [480, 490, 670, 620], type: 'block' },
+  { label: 'red block',         point: [750, 580],  box_2d: [660, 510, 870, 650], type: 'block' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move', args: [585, 755, true] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move', args: [585, 755, false] },
-  { function: 'setGripperState', args: [false] },
-  { function: 'move', args: [585, 755, true] },
-  { function: 'move', args: [311, 461, true] },
-  { function: 'move', args: [311, 461, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move', args: [311, 461, true] },
+  { function: 'move',             args: [230, 630, true] },
+  { function: 'setGripperState',  args: [true] },
+  { function: 'move',             args: [230, 630, false] },
+  { function: 'setGripperState',  args: [false] },
+  { function: 'move',             args: [230, 630, true] },
+  { function: 'move',             args: [100, 520, true] },
+  { function: 'move',             args: [100, 520, false] },
+  { function: 'setGripperState',  args: [true] },
+  { function: 'move',             args: [100, 520, true] },
 ];
 
 // --- Gemini API call ---
@@ -115,71 +163,98 @@ export function captureSceneImage(renderer) {
  * @param {string|null} apiKey - Gemini API key, or null for prebaked plan
  * @param {string} imageBase64 - Base64 JPEG of scene
  * @param {Function} log - Logging callback (msg, level)
- * @returns {Promise<{detections: Array, planSteps: Array}>}
+ * @param {{ camPos: Float64Array, camRot: Float64Array, fovyDeg: number,
+ *           depthBuffer: { data: Float32Array, width: number, height: number } }} [cameraParams]
+ *   Camera parameters and depth buffer for 3D obstacle extraction
+ * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
-export async function detectAndPlan(apiKey, imageBase64, log = () => {}) {
+export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task = 'Place each block on its matching color target') {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
-    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN };
+    const obstacles = [];
+    if (cameraParams) {
+      const { camPos, camRot, fovyDeg, depthBuffer } = cameraParams;
+      for (const det of PREBAKED_DETECTIONS) {
+        if (det.box_2d) {
+          const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg, depthBuffer);
+          obstacles.push({ label: det.label, type: det.type, ...obs3d });
+        }
+      }
+      log(`Extracted ${obstacles.length} 3D obstacles from pre-baked detections`, 'info');
+    }
+    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles };
   }
 
-  // Prompt 1: detect red block + blue target
-  const prompt1 = `Locate and point to the red block and the blue target. The label returned
-should be an identifying name for the object detected.
-The answer should follow the json format: [{"point": <point>,
-"label": <label1>}, ...]. The points are in [y, x] format
-normalized to 0-1000.`;
+  // Prompt 1: detect all objects with bounding boxes
+  const prompt1 = `Detect all objects and obstacles on the table. For each, return:
+- "label": a short identifying name (e.g. "red block", "dark cylinder", "blue target mat")
+- "point": center location in [y, x] format normalized to 0-1000
+- "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
+- "type": one of "block", "target", "obstacle"
+
+Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
   log('Detecting objects [Gemini]...', 'info');
   let t0 = performance.now();
   const resp1 = await geminiCall(apiKey, imageBase64, prompt1);
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
-  log(`Detection response: ${resp1.slice(0, 200)}`, 'info');
+  log(`Detection response: ${resp1}`, 'info');
   const detections = parseJson(resp1);
 
-  const blockDet = detections.find(d => d.label.toLowerCase().includes('block')) ?? detections[0];
-  const targetDet = detections.find(d => d.label.toLowerCase().includes('target')) ?? detections[detections.length - 1];
-  const [blockY, blockX] = blockDet.point;
-  const [targetY, targetX] = targetDet.point;
-  log(`Block: (${blockX}, ${blockY})  Target: (${targetX}, ${targetY})`, 'success');
+  log(`Detections: ${detections.length} objects`, 'success');
 
-  // Prompt 2: generate pick-and-place plan
+  // Prompt 2: task-level plan using full detection list
+  // Gemini detection points are [y, x]; move(x, y) takes x first — swap here.
+  const detectionsJson = JSON.stringify(
+    detections.map(d => ({ label: d.label, type: d.type, point: [d.point[1], d.point[0]] })),
+  );
   const prompt2 = `You are a robotic arm with six degrees-of-freedom. You have the
 following functions available to you:
 
 def move(x, y, high):
-  # moves the arm to the given coordinates. The boolean value 'high' set
-  to True means the robot arm should be lifted above the scene for
-  avoiding obstacles during motion. 'high' set to False means the robot
-  arm should have the gripper placed on the surface for interacting with
-  objects.
+  # moves the arm to the given coordinates (normalized 0-1000).
+  # high=True lifts the arm above the scene to avoid obstacles.
+  # high=False places the gripper on the surface to interact with objects.
 
 def setGripperState(opened):
-  # Opens the gripper if opened set to true, otherwise closes the gripper
+  # Opens the gripper if opened=True, otherwise closes it.
 
-Perform a pick and place operation where you pick up the block at
-normalized coordinates (${blockX}, ${blockY}) and place it on the
-target at normalized coordinates (${targetX}, ${targetY}).
-Provide the sequence of function calls as a JSON list of objects, where
-each object has a "function" key (the function name) and an "args" key
-(a list of arguments for the function).
-Also, include your reasoning before the JSON output.
-For example:
-Reasoning: To pick up the block, I will first move the arm to a high
-position above the block, open the gripper, move down to the block,
-close the gripper, lift the arm, move to a high position above the bowl,
-move down to the bowl, open the gripper, and then lift the arm back to
-a high position.`;
+Objects detected on the table (normalized 0-1000 pixel coordinates, [x, y] format matching move(x, y)):
+${detectionsJson}
+
+Task: ${task}
+
+Use the "point" coordinates from the detected objects above.
+Provide the complete sequence of function calls as a JSON list of objects,
+where each object has a "function" key and an "args" key (a list, not an object).
+Example: [{"function": "move", "args": [586, 760, true]}, ...]
+Include brief reasoning before the JSON output.`;
 
   log('Generating plan [Gemini]...', 'info');
   t0 = performance.now();
   const resp2 = await geminiCall(apiKey, imageBase64, prompt2);
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
-  log(`Plan response: ${resp2.slice(0, 300)}`, 'info');
+  log(`Plan response: ${resp2}`, 'info');
   const planSteps = parseJson(resp2);
   log(`Plan has ${planSteps.length} steps`, 'success');
 
-  return { detections, planSteps };
+  // Extract 3D obstacle cylinders from bounding boxes
+  const obstacles = [];
+  if (cameraParams) {
+    const { camPos, camRot, fovyDeg, depthBuffer } = cameraParams;
+    for (const det of detections) {
+      if (det.box_2d) {
+        const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg, depthBuffer);
+        obstacles.push({ label: det.label, type: det.type, ...obs3d });
+      }
+    }
+    log(`Extracted ${obstacles.length} 3D obstacles from bounding boxes`, 'info');
+    for (const obs of obstacles) {
+      log(`  ${obs.label}: center=(${obs.center[0].toFixed(3)}, ${obs.center[1].toFixed(3)}, ${obs.center[2].toFixed(3)})`, 'info');
+    }
+  }
+
+  return { detections, planSteps, obstacles };
 }
 
 /**
@@ -197,7 +272,13 @@ export function planToWaypoints(planSteps, camPos, camRot, fovyDeg) {
 
   for (const step of planSteps) {
     const func = step.function;
-    const args = step.args;
+    // Gemini may return args as an array [x,y,high] or object {x,y,high}/{opened}
+    const rawArgs = step.args;
+    const args = Array.isArray(rawArgs)
+      ? rawArgs
+      : func === 'move'
+        ? [rawArgs.x, rawArgs.y, rawArgs.high]
+        : [rawArgs.opened];
 
     if (func === 'move' && args.length >= 3) {
       const normX = Number(args[0]);
@@ -219,7 +300,7 @@ export function planToWaypoints(planSteps, camPos, camRot, fovyDeg) {
         gripper = newGripper;
         if (waypoints.length > 0) {
           const lastXyz = new Float64Array(waypoints[waypoints.length - 1].xyz);
-          waypoints.push({ xyz: lastXyz, gripper });
+          waypoints.push({ xyz: lastXyz, gripper, gripperChange: true });
         }
       }
     }

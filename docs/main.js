@@ -16,6 +16,7 @@ const logDiv = document.getElementById('log');
 const btnRun = document.getElementById('btn-run');
 const btnPrebaked = document.getElementById('btn-prebaked');
 const apiKeyInput = document.getElementById('api-key');
+const taskInput = document.getElementById('task-input');
 const chkFreeCam = document.getElementById('chk-free-cam');
 const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
@@ -38,11 +39,13 @@ let ikController = null;
 let waypoints = [];
 let currentWpIdx = 0;
 let simStep = 0;
+let wpSteps = 0; // physics steps spent on current waypoint
 let running = false;
 let animationId = null;
 
 // IK convergence: steps per waypoint before moving on
 const STEPS_PER_WAYPOINT = 200;
+const STEPS_GRIPPER_CHANGE = 500; // extra dwell for gripper open/close to settle
 const PHYSICS_STEPS_PER_FRAME = 5;
 
 // --- Restore API key from localStorage ---
@@ -54,7 +57,7 @@ apiKeyInput.addEventListener('input', () => {
 
 // --- Init ---
 // Lazy-loaded modules (populated in init)
-let initScene, WidowXController, detectAndPlan, planToWaypoints, captureSceneImage;
+let initScene, WidowXController, detectAndPlan, planToWaypoints;
 let eulerToRotationMatrix, rotationMatrixTo6d;
 
 async function init() {
@@ -68,7 +71,6 @@ async function init() {
     const geminiModule = await import('./gemini-er.js');
     detectAndPlan = geminiModule.detectAndPlan;
     planToWaypoints = geminiModule.planToWaypoints;
-    captureSceneImage = geminiModule.captureSceneImage;
     const mathModule = await import('./math-utils.js');
     eulerToRotationMatrix = mathModule.eulerToRotationMatrix;
     rotationMatrixTo6d = mathModule.rotationMatrixTo6d;
@@ -144,10 +146,12 @@ function animate() {
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
       mujocoScene.step();
       simStep++;
+      wpSteps++;
     }
 
-    // Check if we've spent enough steps on this waypoint
-    if (simStep % STEPS_PER_WAYPOINT === 0 && simStep > 0) {
+    const dwell = wp.gripperChange ? STEPS_GRIPPER_CHANGE : STEPS_PER_WAYPOINT;
+    if (wpSteps >= dwell) {
+      wpSteps = 0;
       currentWpIdx++;
       updateWaypointUI();
       if (currentWpIdx < waypoints.length) {
@@ -198,28 +202,61 @@ async function runPipeline(useApiKey) {
   try {
     // Snap to primary camera, grab the frame, then restore the free cam view
     log('Grabbing primary camera image...', 'info');
+    mujocoScene.updateObstacleMarkers([]);
+    mujocoScene.updateWaypointMarkers([], 0);
     mujocoScene.updateVisuals();
     mujocoScene.renderPrimaryCamera();
-    const imageBase64 = captureSceneImage(mujocoScene.renderer);
+    const imageBase64 = mujocoScene.capturePrimaryImage();
+    const depthBuffer = mujocoScene.capturePrimaryDepthBuffer();
     mujocoScene.restoreFreeCam();
 
     const img = document.createElement('img');
     img.src = 'data:image/jpeg;base64,' + imageBase64;
     img.style.maxWidth = '100%';
     logDiv.appendChild(img);
+
+    // Visualize depth buffer as grayscale (near=bright, far=dark), clipped to 2m
+    {
+      const { data, width, height } = depthBuffer;
+      const CLIP = 2.0; // metres — clip far background
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.maxWidth = '100%';
+      const ctx = canvas.getContext('2d');
+      const imgData = ctx.createImageData(width, height);
+      for (let i = 0; i < width * height; i++) {
+        const d = Math.min(data[i], CLIP);
+        const v = Math.round((1 - d / CLIP) * 255); // near=255, far=0
+        imgData.data[i * 4 + 0] = v;
+        imgData.data[i * 4 + 1] = v;
+        imgData.data[i * 4 + 2] = v;
+        imgData.data[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      logDiv.appendChild(canvas);
+    }
+
     logDiv.scrollTop = logDiv.scrollHeight;
 
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
-    const { detections, planSteps } = await detectAndPlan(apiKey, imageBase64, log);
+    const task = taskInput.value.trim() || undefined;
+    const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
+    const { detections, planSteps, obstacles } = await detectAndPlan(
+      apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
+    );
 
     log(`Detections: ${JSON.stringify(detections)}`, 'info');
     log(`Plan: ${planSteps.length} steps`, 'info');
 
+    // Visualize 3D obstacles
+    mujocoScene.updateObstacleMarkers(obstacles);
+
     // Convert plan to 3D waypoints
-    const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     waypoints = planToWaypoints(planSteps, camPos, camRot, fovyDeg);
     currentWpIdx = 0;
     simStep = 0;
+    wpSteps = 0;
 
     log(`Generated ${waypoints.length} waypoints`, 'success');
     updateWaypointUI();
@@ -248,7 +285,15 @@ btnRun.addEventListener('click', () => {
   runPipeline(true);
 });
 
-btnPrebaked.addEventListener('click', () => runPipeline(false));
+btnPrebaked.addEventListener('click', () => {
+  const refreshText = 'Refresh to reset';
+  if (btnPrebaked.textContent !== refreshText) {
+    btnPrebaked.textContent = refreshText;
+    runPipeline(false);
+  } else {
+    location.reload();
+  }
+});
 
 chkFreeCam.addEventListener('change', () => {
   if (mujocoScene) {

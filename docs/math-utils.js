@@ -250,17 +250,16 @@ export const VLA_WIDTH = 256;
 export const VLA_HEIGHT = 256;
 
 /**
- * Project a pixel (in VLA image space) to 3D world coords via ray-plane intersection.
+ * Compute a world-frame ray from a pixel in VLA image space.
  *
  * @param {number} px - x pixel in VLA-sized image
  * @param {number} py - y pixel in VLA-sized image
  * @param {Float64Array} camPos - camera world position (3)
  * @param {Float64Array} camRot - camera rotation matrix (9, row-major) - columns = camera axes in world
  * @param {number} fovyDeg - camera field of view Y in degrees
- * @param {number} tableZ - height of table plane
- * @returns {Float64Array} world point (3)
+ * @returns {{ origin: Float64Array, dir: Float64Array }} ray origin and normalized direction
  */
-export function pixelToWorld3d(px, py, camPos, camRot, fovyDeg, tableZ = 0.02) {
+export function pixelToRay(px, py, camPos, camRot, fovyDeg) {
   const renderW = RENDER_WIDTH, renderH = RENDER_HEIGHT;
   const vlaW = VLA_WIDTH, vlaH = VLA_HEIGHT;
 
@@ -283,15 +282,28 @@ export function pixelToWorld3d(px, py, camPos, camRot, fovyDeg, tableZ = 0.02) {
   );
 
   // Transform to world frame
-  let dWorld = m3mulv(camRot, dCam);
-  dWorld = normalize(dWorld);
+  const dir = normalize(m3mulv(camRot, dCam));
+  return { origin: new Float64Array(camPos), dir };
+}
 
-  // Ray-plane intersection at z = tableZ
-  if (Math.abs(dWorld[2]) < 1e-8) {
+/**
+ * Project a pixel (in VLA image space) to 3D world coords via ray-plane intersection.
+ *
+ * @param {number} px - x pixel in VLA-sized image
+ * @param {number} py - y pixel in VLA-sized image
+ * @param {Float64Array} camPos - camera world position (3)
+ * @param {Float64Array} camRot - camera rotation matrix (9, row-major) - columns = camera axes in world
+ * @param {number} fovyDeg - camera field of view Y in degrees
+ * @param {number} tableZ - height of table plane
+ * @returns {Float64Array} world point (3)
+ */
+export function pixelToWorld3d(px, py, camPos, camRot, fovyDeg, tableZ = 0.02) {
+  const ray = pixelToRay(px, py, camPos, camRot, fovyDeg);
+  if (Math.abs(ray.dir[2]) < 1e-8) {
     return new Float64Array(camPos); // fallback
   }
-  const t = (tableZ - camPos[2]) / dWorld[2];
-  return add(camPos, scale(dWorld, t));
+  const t = (tableZ - ray.origin[2]) / ray.dir[2];
+  return add(ray.origin, scale(ray.dir, t));
 }
 
 // --- Gripper mapping ---
