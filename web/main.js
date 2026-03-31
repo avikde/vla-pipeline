@@ -39,6 +39,7 @@ function log(msg, level = '') {
 let mujocoScene = null;
 let controller = null;
 let waypoints = [];
+let obstacles = [];
 let currentWpIdx = 0;
 let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
@@ -146,7 +147,7 @@ function animate() {
   if (currentWpIdx < waypoints.length) {
     const wp = waypoints[currentWpIdx];
     const action = waypointToAction10d(wp);
-    const ctrlTarget = controller.calcPosTarget(mujocoScene.data.qpos, action);
+    const ctrlTarget = controller.calcPosTarget(mujocoScene.data.qpos, action, obstacles);
 
     if (ctrlTarget) {
       Controller.applyControl(mujocoScene.data.ctrl, ctrlTarget);
@@ -263,7 +264,7 @@ async function runPipeline(useApiKey) {
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const task = taskInput.value.trim() || DEFAULT_TASK;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
-    const { detections, planSteps, obstacles } = await detectAndPlan(
+    const { detections, planSteps, obstacles: detectedObstacles } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
     );
 
@@ -271,6 +272,7 @@ async function runPipeline(useApiKey) {
     log(`Plan: ${planSteps.length} steps`, 'info');
 
     // Visualize 3D obstacles
+    obstacles = detectedObstacles;
     mujocoScene.updateObstacleMarkers(obstacles);
 
     // Convert plan to 3D waypoints

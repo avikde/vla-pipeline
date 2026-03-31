@@ -62,14 +62,67 @@ export class Controller {
   }
 
   /**
+   * Compute joint-space repulsive gradient from obstacles.
+   * For each obstacle, uses an ellipsoidal potential 1/(r-1) where r is the
+   * normalized distance (r=1 at the obstacle surface).
+   *
+   * @param {object} scratch - MjData with fwd kinematics already run
+   * @param {Float64Array} Jp - Position Jacobian (3 x nArm, row-major)
+   * @param {Array} obstacles - [{center, horizontal_size, vertical_size}, ...]
+   * @returns {Float64Array} Jo (nArm) joint-space repulsive gradient
+   */
+  _obstacleGradient(scratch, Jp, obstacles) {
+    const OBST_GAIN = 0.01;
+    const OBST_CUTOFF = 3.0; // normalized distance; skip if farther
+    const EPSILON = 0.01;    // prevents blow-up at r=1
+    const nArm = 6;
+
+    const Jo = new Float64Array(nArm);
+    const eePos = this._eePos(scratch);
+
+    for (const obs of obstacles) {
+      const { center, horizontal_size: hs, vertical_size: vs } = obs;
+      if (!center || !hs || !vs) continue;
+
+      const dx = eePos[0] - center[0];
+      const dy = eePos[1] - center[1];
+      const dz = eePos[2] - center[2];
+
+      const r = Math.sqrt((dx / hs) ** 2 + (dy / hs) ** 2 + (dz / vs) ** 2);
+      if (r > OBST_CUTOFF || r < 1e-9) continue;
+
+      const rSafe = Math.max(r - 1.0, EPSILON);
+      const b = 1.0 / rSafe;
+
+      // ∂b/∂ee = -b² * ∂r/∂ee
+      // ∂r/∂ee = [(dx/hs²)/r, (dy/hs²)/r, (dz/vs²)/r]
+      const scale = -b * b / r;
+      const gx = scale * (dx / (hs * hs));
+      const gy = scale * (dy / (hs * hs));
+      const gz = scale * (dz / (vs * vs));
+
+      // Jo_joints = Jp^T * [gx, gy, gz] * OBST_GAIN
+      for (let j = 0; j < nArm; j++) {
+        Jo[j] += OBST_GAIN * (
+          Jp[0 * nArm + j] * gx +
+          Jp[1 * nArm + j] * gy +
+          Jp[2 * nArm + j] * gz
+        );
+      }
+    }
+    return Jo;
+  }
+
+  /**
    * Compute one vel-control step from current qpos toward the target EE pose.
    * Returns Float32Array(7) ctrl target = qpos + dq.
    *
    * @param {Float64Array|Float32Array} qpos - Current generalized positions
    * @param {Float64Array|Float32Array} action10d - [xyz(3), rot6d(6), gripper(1)]
+   * @param {Array} obstacles - optional obstacle array for avoidance
    * @returns {Float32Array} ctrl_target [6 joints + 1 gripper]
    */
-  calcPosTarget(qpos, action10d) {
+  calcPosTarget(qpos, action10d, obstacles = []) {
     const { pos: targetPos, rot: targetRot } = ee6dToPosRot(action10d);
     const gripperVal = action10d[9];
 
@@ -140,7 +193,10 @@ export class Controller {
       err = new Float64Array([posErr[0], posErr[1], posErr[2]]);
     }
 
-    const dq = matLeastSquares(J, m, nArm, err);
+    const dq_task = matLeastSquares(J, m, nArm, err);
+    const Jo = this._obstacleGradient(scratch, Jp, obstacles);
+    const dq = new Float64Array(nArm);
+    for (let i = 0; i < nArm; i++) dq[i] = dq_task[i] + Jo[i];
 
     // qpos + dq, clamped to joint limits
     const ctrlTarget = new Float32Array(7);
