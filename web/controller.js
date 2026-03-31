@@ -75,13 +75,14 @@ export class Controller {
     const OBST_GAIN = 0.01;
     const OBST_CUTOFF = 3.0; // normalized distance; skip if farther
     const EPSILON = 0.01;    // prevents blow-up at r=1
-    const nArm = 6;
+    const nArm = 6; // number of DOFs
 
     const Jo = new Float64Array(nArm);
     const eePos = this._eePos(scratch);
 
     for (const obs of obstacles) {
-      const { center, horizontal_size: hs, vertical_size: vs } = obs;
+      const { center, horizontal_size: hs, vertical_size: vs, type } = obs;
+      if (type !== 'obstacle') continue;
       if (!center || !hs || !vs) continue;
 
       const dx = eePos[0] - center[0];
@@ -90,13 +91,14 @@ export class Controller {
 
       const r = Math.sqrt((dx / hs) ** 2 + (dy / hs) ** 2 + (dz / vs) ** 2);
       if (r > OBST_CUTOFF || r < 1e-9) continue;
-
+      // r = 1 means on the boundary
       const rSafe = Math.max(r - 1.0, EPSILON);
-      const b = 1.0 / rSafe;
+      const b = Math.min(1.0 / rSafe, 1.0 / EPSILON); // clamp at max repulsion
 
-      // ∂b/∂ee = -b² * ∂r/∂ee
-      // ∂r/∂ee = [(dx/hs²)/r, (dy/hs²)/r, (dz/vs²)/r]
-      const scale = -b * b / r;
+      // We want -∂b/∂ee to repel (push away from increasing potential).
+      // ∂b/∂r = -b², ∂r/∂ee_x = (dx/hs²)/r
+      // -∂b/∂ee_x = +b² * (dx/hs²)/r  → positive when dx>0 (push away)
+      const scale = b * b / r;
       const gx = scale * (dx / (hs * hs));
       const gy = scale * (dy / (hs * hs));
       const gz = scale * (dz / (vs * vs));
