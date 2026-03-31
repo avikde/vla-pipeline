@@ -166,6 +166,7 @@ function animate() {
     }
     if (!running) return; // already stopped
     running = false;
+    mujocoScene.simRunning = false;
     log('Pick-and-place complete!', 'success');
     btnRun.disabled = false;
     btnPrebaked.disabled = false;
@@ -265,6 +266,7 @@ async function runPipeline(useApiKey) {
 
     // Start animation
     running = true;
+    mujocoScene.simRunning = true;
     statusSim.textContent = 'Sim: running';
     animate();
 

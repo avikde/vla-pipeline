@@ -264,7 +264,8 @@ export class MujocoScene {
     // Body filter for debugging (null = show all mesh geoms)
     this._allowedBodyIds = null;
 
-    // Drag state
+    // Drag state (disabled while sim is running)
+    this.simRunning = false;
     this._freeCamActive = false;
     this._drag = null;
     this._raycaster = null;
@@ -368,7 +369,6 @@ export class MujocoScene {
 
   /** Step MuJoCo simulation. */
   step() {
-    this._applyDragConstraint();
     this.mj.mj_step(this.model, this.data);
   }
 
@@ -789,17 +789,6 @@ export class MujocoScene {
     return best;
   }
 
-  /** Teleport a dragged block to its target position before each physics step. */
-  _applyDragConstraint() {
-    const d = this._drag;
-    if (!d || d.type !== 'block' || d.targetX === undefined) return;
-    const qa = d.qposAddr, da = d.dofAddr;
-    this.data.qpos[qa] = d.targetX;
-    this.data.qpos[qa + 1] = d.targetY;
-    this.data.qpos[qa + 2] = d.objectZ;
-    for (let i = 0; i < 6; i++) this.data.qvel[da + i] = 0;
-  }
-
   /** Attach mouse event listeners for drag-to-reposition. */
   _initDragHandlers() {
     const canvas = this.renderer.domElement;
@@ -813,7 +802,7 @@ export class MujocoScene {
   }
 
   _onMouseDown(e) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || this.simRunning) return;
     const hit = this._raycastAtZ(e, 0.035);
     if (!hit) return;
     const desc = this._findClosestDraggable(hit);
@@ -833,14 +822,10 @@ export class MujocoScene {
     const newX = hit.x + this._drag.offsetX;
     const newY = hit.y + this._drag.offsetY;
     if (this._drag.type === 'block') {
-      this._drag.targetX = newX;
-      this._drag.targetY = newY;
-      // Teleport immediately so mj_forward sees the new position
-      const qa = this._drag.qposAddr, da = this._drag.dofAddr;
+      const qa = this._drag.qposAddr;
       this.data.qpos[qa] = newX;
       this.data.qpos[qa + 1] = newY;
       this.data.qpos[qa + 2] = this._drag.objectZ;
-      for (let i = 0; i < 6; i++) this.data.qvel[da + i] = 0;
     } else {
       const mi = this._drag.mocapIdx;
       this.data.mocap_pos[mi * 3]     = newX;
