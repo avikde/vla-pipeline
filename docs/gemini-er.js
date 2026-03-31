@@ -168,7 +168,7 @@ export function captureSceneImage(renderer) {
  *   Camera parameters and depth buffer for 3D obstacle extraction
  * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
-export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null) {
+export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task = 'Place each block on its matching color target') {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
     const obstacles = [];
@@ -201,39 +201,33 @@ Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y
   log(`Detection response: ${resp1}`, 'info');
   const detections = parseJson(resp1);
 
-  const blockDet = detections.find(d => d.label.toLowerCase().includes('block')) ?? detections[0];
-  const targetDet = detections.find(d => d.label.toLowerCase().includes('target')) ?? detections[detections.length - 1];
-  const [blockY, blockX] = blockDet.point;
-  const [targetY, targetX] = targetDet.point;
-  log(`Block: (${blockX}, ${blockY})  Target: (${targetX}, ${targetY})`, 'success');
+  log(`Detections: ${detections.length} objects`, 'success');
 
-  // Prompt 2: generate pick-and-place plan
+  // Prompt 2: task-level plan using full detection list
+  const detectionsJson = JSON.stringify(
+    detections.map(d => ({ label: d.label, type: d.type, point: d.point })),
+  );
   const prompt2 = `You are a robotic arm with six degrees-of-freedom. You have the
 following functions available to you:
 
 def move(x, y, high):
-  # moves the arm to the given coordinates. The boolean value 'high' set
-  to True means the robot arm should be lifted above the scene for
-  avoiding obstacles during motion. 'high' set to False means the robot
-  arm should have the gripper placed on the surface for interacting with
-  objects.
+  # moves the arm to the given coordinates (normalized 0-1000).
+  # high=True lifts the arm above the scene to avoid obstacles.
+  # high=False places the gripper on the surface to interact with objects.
 
 def setGripperState(opened):
-  # Opens the gripper if opened set to true, otherwise closes the gripper
+  # Opens the gripper if opened=True, otherwise closes it.
 
-Perform a pick and place operation where you pick up the block at
-normalized coordinates (${blockX}, ${blockY}) and place it on the
-target at normalized coordinates (${targetX}, ${targetY}).
-Provide the sequence of function calls as a JSON list of objects, where
-each object has a "function" key (the function name) and an "args" key
-(a list of arguments for the function).
-Also, include your reasoning before the JSON output.
-For example:
-Reasoning: To pick up the block, I will first move the arm to a high
-position above the block, open the gripper, move down to the block,
-close the gripper, lift the arm, move to a high position above the bowl,
-move down to the bowl, open the gripper, and then lift the arm back to
-a high position.`;
+Objects detected on the table (normalized 0-1000 pixel coordinates, [y, x] format):
+${detectionsJson}
+
+Task: ${task}
+
+Use the "point" coordinates from the detected objects above.
+Provide the complete sequence of function calls as a JSON list of objects,
+where each object has a "function" key and an "args" key (a list, not an object).
+Example: [{"function": "move", "args": [586, 760, true]}, ...]
+Include brief reasoning before the JSON output.`;
 
   log('Generating plan [Gemini]...', 'info');
   t0 = performance.now();
@@ -277,7 +271,13 @@ export function planToWaypoints(planSteps, camPos, camRot, fovyDeg) {
 
   for (const step of planSteps) {
     const func = step.function;
-    const args = step.args;
+    // Gemini may return args as an array [x,y,high] or object {x,y,high}/{opened}
+    const rawArgs = step.args;
+    const args = Array.isArray(rawArgs)
+      ? rawArgs
+      : func === 'move'
+        ? [rawArgs.x, rawArgs.y, rawArgs.high]
+        : [rawArgs.opened];
 
     if (func === 'move' && args.length >= 3) {
       const normX = Number(args[0]);

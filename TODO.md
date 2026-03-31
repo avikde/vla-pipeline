@@ -1,7 +1,6 @@
 
-- update bbox function
-- fix fallback plan - it should still have depth buffer
 - it moved green block to red mat, but it should have moved red block to blue mat
+- add license
 - web version drag to move obstacles or blocks
 
 ## Non-IK solution
