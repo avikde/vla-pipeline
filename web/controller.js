@@ -75,6 +75,7 @@ export class Controller {
     const MAX_POS_ERR = 0.2; // m — caps dq magnitude without explicit clamping
     const MAX_ROT_ERR = 1.0; // rad — analogous to MAX_POS_ERR
     const ORI_WEIGHT = 1.5; // scale orientation [rad] err vs. pos [m]
+    const MAX_DQ = 0.3; // rad/frame for each joint
 
     const { pos: targetPos, rot: targetRot } = ee6dToPosRot(action10d);
     const gripperVal = action10d[9];
@@ -164,6 +165,13 @@ export class Controller {
       let s = 0;
       for (let j = 0; j < m; j++) s += Jpinv[i * m + j] * err[j];
       dq[i] = s;
+    }
+
+    // Clamp total step size to limit arm speed
+    const dqNorm = Math.sqrt(dq.reduce((s, v) => s + v * v, 0));
+    if (dqNorm > MAX_DQ) {
+      const dqScale = MAX_DQ / dqNorm;
+      for (let i = 0; i < nArm; i++) dq[i] *= dqScale;
     }
 
     // qpos + dq, clamped to joint limits
