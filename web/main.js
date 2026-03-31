@@ -40,7 +40,6 @@ let waypoints = [];
 let currentWpIdx = 0;
 let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
-let running = false;
 let animationId = null;
 
 // IK convergence: steps per waypoint before moving on
@@ -132,7 +131,7 @@ function updateWaypointUI() {
 
 // --- Animation loop ---
 function animate() {
-  if (!running || !mujocoScene) return;
+  if (!mujocoScene?.simRunning) return;
 
   if (currentWpIdx < waypoints.length) {
     const wp = waypoints[currentWpIdx];
@@ -164,8 +163,7 @@ function animate() {
       mujocoScene.step();
       simStep++;
     }
-    if (!running) return; // already stopped
-    running = false;
+    if (!mujocoScene.simRunning) return; // already stopped
     mujocoScene.simRunning = false;
     log('Pick-and-place complete!', 'success');
     btnRun.disabled = false;
@@ -197,7 +195,7 @@ async function runPipeline(useApiKey) {
 
   btnRun.disabled = true;
   btnPrebaked.disabled = true;
-  running = false;
+  mujocoScene.simRunning = false;
   if (animationId) cancelAnimationFrame(animationId);
 
   try {
@@ -265,7 +263,6 @@ async function runPipeline(useApiKey) {
     mujocoScene.render();
 
     // Start animation
-    running = true;
     mujocoScene.simRunning = true;
     statusSim.textContent = 'Sim: running';
     animate();
