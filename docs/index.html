@@ -75,9 +75,18 @@
     .controls a {
       color: #ffffff;
     }
-    .controls input[type="password"]:focus {
+    .controls input[type="password"]:focus,
+    .controls input[type="text"]:focus {
       outline: none;
       border-color: #6ea8fe;
+    }
+    .controls input[type="text"] {
+      background: #0f3460;
+      border: 1px solid #333;
+      color: #e0e0e0;
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
     }
     button {
       background: #0f3460;
@@ -226,13 +235,15 @@
   <div class="controls">
     <label for="api-key">Gemini API Key (<a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener">free</a>):</label>
     <input type="password" id="api-key" placeholder="Paste your key (stored locally only)">
-    <label for="task-input">Task:</label>
-    <input type="text" id="task-input" placeholder="Place each block on its matching color target">
-    <button id="btn-run" class="primary" disabled>Run Demo</button>
-    <button id="btn-prebaked">Use Cached Plan</button>
     <label class="checkbox-label">
       <input type="checkbox" id="chk-free-cam"> Free camera
     </label>
+    <div style="width:100%;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <label for="task-input">Task:</label>
+      <input type="text" id="task-input" placeholder="Place each block on its matching color target" style="flex:1;min-width:260px;">
+      <button id="btn-run" class="primary" disabled>Run Demo</button>
+      <button id="btn-prebaked">Use Cached Plan</button>
+    </div>
   </div>
 
   <div class="main-area">

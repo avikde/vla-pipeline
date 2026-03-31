@@ -300,7 +300,7 @@ export function planToWaypoints(planSteps, camPos, camRot, fovyDeg) {
         gripper = newGripper;
         if (waypoints.length > 0) {
           const lastXyz = new Float64Array(waypoints[waypoints.length - 1].xyz);
-          waypoints.push({ xyz: lastXyz, gripper });
+          waypoints.push({ xyz: lastXyz, gripper, gripperChange: true });
         }
       }
     }

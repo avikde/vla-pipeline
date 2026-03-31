@@ -39,11 +39,13 @@ let ikController = null;
 let waypoints = [];
 let currentWpIdx = 0;
 let simStep = 0;
+let wpSteps = 0; // physics steps spent on current waypoint
 let running = false;
 let animationId = null;
 
 // IK convergence: steps per waypoint before moving on
 const STEPS_PER_WAYPOINT = 200;
+const STEPS_GRIPPER_CHANGE = 500; // extra dwell for gripper open/close to settle
 const PHYSICS_STEPS_PER_FRAME = 5;
 
 // --- Restore API key from localStorage ---
@@ -144,10 +146,12 @@ function animate() {
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
       mujocoScene.step();
       simStep++;
+      wpSteps++;
     }
 
-    // Check if we've spent enough steps on this waypoint
-    if (simStep % STEPS_PER_WAYPOINT === 0 && simStep > 0) {
+    const dwell = wp.gripperChange ? STEPS_GRIPPER_CHANGE : STEPS_PER_WAYPOINT;
+    if (wpSteps >= dwell) {
+      wpSteps = 0;
       currentWpIdx++;
       updateWaypointUI();
       if (currentWpIdx < waypoints.length) {
@@ -252,6 +256,7 @@ async function runPipeline(useApiKey) {
     waypoints = planToWaypoints(planSteps, camPos, camRot, fovyDeg);
     currentWpIdx = 0;
     simStep = 0;
+    wpSteps = 0;
 
     log(`Generated ${waypoints.length} waypoints`, 'success');
     updateWaypointUI();

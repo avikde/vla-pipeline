@@ -1,5 +1,6 @@
 
-- it moved green block to red mat, but it should have moved red block to blue mat
+- dropping blocks issue - compare against main
+- planner to avoid the obstacles
 - add license
 - web version drag to move obstacles or blocks
 
