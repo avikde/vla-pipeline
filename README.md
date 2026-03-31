@@ -17,7 +17,7 @@ Try the browser-based demo with MuJoCo WASM + Three.js, no installation required
 
 ## Develop locally (optional)
 
-The `docs/` directory contains a fully client-side embodied reasoning demo using MuJoCo WASM + Three.js. No backend required.
+The `web/` directory contains a fully client-side embodied reasoning demo using MuJoCo WASM + Three.js. No backend required.
 
 ```sh
 git clone https://github.com/avikde/vla-pipeline.git
@@ -27,21 +27,21 @@ cd vla-pipeline
 `brew install node`
 
 ```bash
-node docs/serve.js
+node web/serve.js
 # Open http://localhost:8080
 ```
 
 ## Architecture
 
-### Browser demo (`docs/`)
+### Browser demo (`web/`)
 
 | Module | Role |
 |--------|------|
-| `docs/main.js` | Entry point: init, Gemini pipeline, waypoint sequencing, animation loop |
-| `docs/mujoco-scene.js` | MuJoCo WASM init, Three.js rendering, MjvScene sync |
-| `docs/ik-solver.js` | JS port of `WidowXController` |
-| `docs/gemini-er.js` | JS port of `gemini_er_policy.py` + pre-baked fallback plan |
-| `docs/math-utils.js` | Linear algebra, rotation math, pixel-to-3D projection |
+| `web/main.js` | Entry point: init, Gemini pipeline, waypoint sequencing, animation loop |
+| `web/mujoco-scene.js` | MuJoCo WASM init, Three.js rendering, MjvScene sync |
+| `web/ik-solver.js` | JS port of `WidowXController` |
+| `web/gemini-er.js` | JS port of `gemini_er_policy.py` + pre-baked fallback plan |
+| `web/math-utils.js` | Linear algebra, rotation math, pixel-to-3D projection |
 
 Stack: [`@mujoco/mujoco`](https://www.npmjs.com/package/@mujoco/mujoco) WASM (CDN), [Three.js](https://threejs.org/) v0.170 (CDN), Gemini API via `fetch()`.
 

@@ -1,11 +1,11 @@
 /venv
 .claude
 *.png
-!docs/**/*.png
+!web/**/*.png
 *.mp4
 *.log
 __pycache__
 .DS_Store
 
-docs/node_modules/
-docs/package-lock.json
+web/node_modules/
+web/package-lock.json

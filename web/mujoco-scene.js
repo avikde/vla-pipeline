@@ -11,7 +11,7 @@ import { RENDER_WIDTH, RENDER_HEIGHT } from './math-utils.js';
 
 // MuJoCo WASM served locally (Workers require same-origin).
 
-// Asset paths relative to docs/
+// Asset paths relative to web/
 const ASSET_BASE = 'widowx/';
 const STL_FILES = [
   'wx250s_1_base.stl',
