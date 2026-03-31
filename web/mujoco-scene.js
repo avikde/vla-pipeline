@@ -264,6 +264,13 @@ export class MujocoScene {
     // Body filter for debugging (null = show all mesh geoms)
     this._allowedBodyIds = null;
 
+    // Drag state (disabled while sim is running)
+    this.simRunning = false;
+    this._drag = null;
+    this._raycaster = null;
+    this._buildDraggableRegistry();
+    this._initDragHandlers();
+
     // Handle resize
     this._resizeObserver = new ResizeObserver(() => this._onResize());
     this._resizeObserver.observe(canvas);
@@ -722,8 +729,129 @@ export class MujocoScene {
     return tex;
   }
 
+  /** Build registry of draggable objects (blocks via freejoint, obstacles via mocap). */
+  _buildDraggableRegistry() {
+    this._draggables = [];
+    const blockDefs = [['red_block', 0.02], ['green_block', 0.02], ['blue_block', 0.02]];
+    const obstacleDefs = [['obstacle_1', 0.05], ['obstacle_2', 0.05]];
+
+    for (const [name, objectZ] of blockDefs) {
+      const bodyId = this.model.body(name).id;
+      for (let j = 0; j < this.model.njnt; j++) {
+        if (Number(this.model.jnt_bodyid[j]) === bodyId) {
+          this._draggables.push({
+            name, bodyId, type: 'block', objectZ,
+            qposAddr: Number(this.model.jnt_qposadr[j]),
+            dofAddr: Number(this.model.jnt_dofadr[j]),
+            mocapIdx: null,
+          });
+          break;
+        }
+      }
+    }
+
+    for (const [name, objectZ] of obstacleDefs) {
+      const bodyId = this.model.body(name).id;
+      const mocapIdx = Number(this.model.body_mocapid[bodyId]);
+      this._draggables.push({ name, bodyId, type: 'obstacle', objectZ, qposAddr: null, dofAddr: null, mocapIdx });
+    }
+  }
+
+  /** Cast a ray from the camera at mouse event `e` and return its intersection with the z=planeZ plane. */
+  _raycastAtZ(e, planeZ) {
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this._raycaster ??= new THREE.Raycaster();
+    this._raycaster.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ);
+    const hit = new THREE.Vector3();
+    return this._raycaster.ray.intersectPlane(plane, hit) ? hit : null;
+  }
+
+  /** Find the closest draggable object within GRAB_RADIUS of `hit` (XY only). */
+  _findClosestDraggable(hit) {
+    const GRAB_RADIUS = 0.05;
+    let best = null, bestDist = Infinity;
+    for (const desc of this._draggables) {
+      const b = desc.bodyId;
+      const dx = this.data.xpos[b * 3] - hit.x;
+      const dy = this.data.xpos[b * 3 + 1] - hit.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < GRAB_RADIUS && dist < bestDist) {
+        bestDist = dist;
+        best = desc;
+      }
+    }
+    return best;
+  }
+
+  /** Attach mouse event listeners for drag-to-reposition. */
+  _initDragHandlers() {
+    const canvas = this.renderer.domElement;
+    this._boundMouseDown = (e) => this._onMouseDown(e);
+    this._boundMouseMove = (e) => this._onMouseMove(e);
+    this._boundMouseUp   = (e) => this._onMouseUp(e);
+    canvas.addEventListener('mousedown', this._boundMouseDown);
+    canvas.addEventListener('mousemove', this._boundMouseMove);
+    canvas.addEventListener('mouseup',   this._boundMouseUp);
+    window.addEventListener('mouseup',   this._boundMouseUp);
+  }
+
+  _onMouseDown(e) {
+    if (e.button !== 0 || this.simRunning) return;
+    const hit = this._raycastAtZ(e, 0.035);
+    if (!hit) return;
+    const desc = this._findClosestDraggable(hit);
+    if (!desc) return;
+    const prevControlsEnabled = this.controls.enabled;
+    this.controls.enabled = false;
+    const hitAtZ = this._raycastAtZ(e, desc.objectZ);
+    const offsetX = hitAtZ ? this.data.xpos[desc.bodyId * 3]     - hitAtZ.x : 0;
+    const offsetY = hitAtZ ? this.data.xpos[desc.bodyId * 3 + 1] - hitAtZ.y : 0;
+    this._drag = { ...desc, offsetX, offsetY, prevControlsEnabled };
+    this.renderer.domElement.style.cursor = 'grabbing';
+  }
+
+  _onMouseMove(e) {
+    if (!this._drag) return;
+    const hit = this._raycastAtZ(e, this._drag.objectZ);
+    if (!hit) return;
+    const newX = hit.x + this._drag.offsetX;
+    const newY = hit.y + this._drag.offsetY;
+    if (this._drag.type === 'block') {
+      const qa = this._drag.qposAddr;
+      this.data.qpos[qa] = newX;
+      this.data.qpos[qa + 1] = newY;
+      this.data.qpos[qa + 2] = this._drag.objectZ;
+    } else {
+      const mi = this._drag.mocapIdx;
+      this.data.mocap_pos[mi * 3]     = newX;
+      this.data.mocap_pos[mi * 3 + 1] = newY;
+    }
+    // Update xpos from the position write, then redraw.
+    // Needed in all states: idle (no animate loop), free-cam (no mj_step), running (immediate feedback).
+    this.mj.mj_forward(this.model, this.data);
+    this.updateVisuals();
+    this.render();
+  }
+
+  _onMouseUp(e) {
+    if (!this._drag) return;
+    const { prevControlsEnabled } = this._drag;
+    this._drag = null;
+    this.controls.enabled = prevControlsEnabled;
+    this.renderer.domElement.style.cursor = 'default';
+  }
+
   /** Clean up resources. */
   dispose() {
+    const canvas = this.renderer.domElement;
+    canvas.removeEventListener('mousedown', this._boundMouseDown);
+    canvas.removeEventListener('mousemove', this._boundMouseMove);
+    canvas.removeEventListener('mouseup',   this._boundMouseUp);
+    window.removeEventListener('mouseup',   this._boundMouseUp);
     this._resizeObserver.disconnect();
     this.controls.dispose();
     for (const mesh of this._geomMeshes.values()) {

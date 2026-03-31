@@ -17,6 +17,8 @@ const btnRun = document.getElementById('btn-run');
 const btnPrebaked = document.getElementById('btn-prebaked');
 const apiKeyInput = document.getElementById('api-key');
 const taskInput = document.getElementById('task-input');
+const DEFAULT_TASK = 'Place the green block on the red target';
+taskInput.placeholder = DEFAULT_TASK;
 const chkFreeCam = document.getElementById('chk-free-cam');
 const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
@@ -40,7 +42,6 @@ let waypoints = [];
 let currentWpIdx = 0;
 let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
-let running = false;
 let animationId = null;
 
 // IK convergence: steps per waypoint before moving on
@@ -132,7 +133,7 @@ function updateWaypointUI() {
 
 // --- Animation loop ---
 function animate() {
-  if (!running || !mujocoScene) return;
+  if (!mujocoScene?.simRunning) return;
 
   if (currentWpIdx < waypoints.length) {
     const wp = waypoints[currentWpIdx];
@@ -164,8 +165,8 @@ function animate() {
       mujocoScene.step();
       simStep++;
     }
-    if (!running) return; // already stopped
-    running = false;
+    if (!mujocoScene.simRunning) return; // already stopped
+    mujocoScene.simRunning = false;
     log('Pick-and-place complete!', 'success');
     btnRun.disabled = false;
     btnPrebaked.disabled = false;
@@ -196,7 +197,7 @@ async function runPipeline(useApiKey) {
 
   btnRun.disabled = true;
   btnPrebaked.disabled = true;
-  running = false;
+  mujocoScene.simRunning = false;
   if (animationId) cancelAnimationFrame(animationId);
 
   try {
@@ -240,7 +241,7 @@ async function runPipeline(useApiKey) {
     logDiv.scrollTop = logDiv.scrollHeight;
 
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
-    const task = taskInput.value.trim() || undefined;
+    const task = taskInput.value.trim() || DEFAULT_TASK;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     const { detections, planSteps, obstacles } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
@@ -264,7 +265,7 @@ async function runPipeline(useApiKey) {
     mujocoScene.render();
 
     // Start animation
-    running = true;
+    mujocoScene.simRunning = true;
     statusSim.textContent = 'Sim: running';
     animate();
 
@@ -277,6 +278,9 @@ async function runPipeline(useApiKey) {
 }
 
 // --- UI wiring ---
+taskInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !btnRun.disabled) btnRun.click();
+});
 btnRun.addEventListener('click', () => {
   if (!apiKeyInput.value.trim()) {
     log('Please enter a Gemini API key.', 'warn');
