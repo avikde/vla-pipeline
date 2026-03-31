@@ -17,6 +17,8 @@ const btnRun = document.getElementById('btn-run');
 const btnPrebaked = document.getElementById('btn-prebaked');
 const apiKeyInput = document.getElementById('api-key');
 const taskInput = document.getElementById('task-input');
+const DEFAULT_TASK = 'Place the green block on the red target';
+taskInput.placeholder = DEFAULT_TASK;
 const chkFreeCam = document.getElementById('chk-free-cam');
 const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
@@ -239,7 +241,7 @@ async function runPipeline(useApiKey) {
     logDiv.scrollTop = logDiv.scrollHeight;
 
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
-    const task = taskInput.value.trim() || undefined;
+    const task = taskInput.value.trim() || DEFAULT_TASK;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     const { detections, planSteps, obstacles } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,

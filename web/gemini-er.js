@@ -168,7 +168,7 @@ export function captureSceneImage(renderer) {
  *   Camera parameters and depth buffer for 3D obstacle extraction
  * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
-export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task = 'Place each block on its matching color target') {
+export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task) {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
     const obstacles = [];
