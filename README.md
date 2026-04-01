@@ -12,7 +12,7 @@ Blog posts for context:
 Try the browser-based demo with MuJoCo WASM + Three.js, no installation required:
 - Grab your own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier), or use the pre-baked fallback plan
 - Open https://avikde.github.io/vla-pipeline/ in Chrome
-- Click "Run Demo" or "Use Cached Plan" and watch the pick-and-place in action!
+- Click "Run Task" or "Use Cached Task" and watch the pick-and-place in action!
 - Use the mouse to orbit the camera, and check the console for debug logs
 
 ## Develop locally (optional)

@@ -127,7 +127,7 @@ async function init() {
     loadingOverlay.style.display = 'none';
     statusSim.textContent = 'Sim: ready';
     btnRun.disabled = false;
-    log('Scene loaded. Enter API key and click Run, or use cached plan.', 'success');
+    log('Scene loaded. Enter API key and click Run, or Use Cached Task.', 'success');
   } catch (err) {
     loadingText.textContent = `Error: ${err.message}`;
     log(`Init failed: ${err.message}`, 'error');
