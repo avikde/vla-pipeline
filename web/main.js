@@ -24,6 +24,7 @@ const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
 const statusEe = document.getElementById('status-ee');
 const waypointList = document.getElementById('waypoint-list');
+const planTextDiv = document.getElementById('plan-text');
 
 // --- Logging ---
 function log(msg, level = '') {
@@ -288,9 +289,16 @@ async function runPipeline(useApiKey) {
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const task = taskInput.value.trim() || DEFAULT_TASK;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
-    const { detections, planSteps, obstacles: detectedObstacles } = await detectAndPlan(
+    const { detections, planSteps, obstacles: detectedObstacles, planText } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
     );
+
+    // Render plan reasoning text (basic **bold** markdown)
+    if (planText) {
+      planTextDiv.innerHTML = planText
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    }
 
     log(`Detections: ${JSON.stringify(detections)}`, 'info');
     log(`Plan: ${planSteps.length} steps`, 'info');

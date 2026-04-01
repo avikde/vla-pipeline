@@ -188,6 +188,16 @@
     #log .warn { color: #f0ad4e; }
     #log .error { color: #e74c3c; }
 
+    #plan-text {
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: #ccc;
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    #plan-text strong { color: #e0e0e0; }
+
     #waypoint-list {
       font-size: 0.75rem;
       font-family: 'SF Mono', 'Fira Code', monospace;
@@ -256,6 +266,10 @@
       </div>
     </div>
     <div class="sidebar">
+      <div class="panel">
+        <h3>Plan</h3>
+        <div id="plan-text"><em style="color:#555">No plan yet</em></div>
+      </div>
       <div class="panel">
         <h3>Waypoints</h3>
         <div id="waypoint-list"><em style="color:#555">No plan yet</em></div>

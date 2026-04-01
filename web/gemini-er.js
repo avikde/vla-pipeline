@@ -8,6 +8,7 @@
 import {
   pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, sub, norm, dot,
 } from './math-utils.js';
+import { PREBAKED_PLAN_TEXT, PREBAKED_DETECTIONS, PREBAKED_PLAN } from './prebaked-plan.js';
 
 const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
 const GRASP_HEIGHT = 0.04;  // z for "low" moves (top of block)
@@ -58,46 +59,6 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
   const vertical_size   = Math.max(norm(sub(pBot, pTop)),   0.02);
   return { center, horizontal_size, vertical_size };
 }
-
-// --- Pre-baked plan (fallback when no API key provided) ---
-// Recorded from a successful Gemini ER run on the default scene.
-const PREBAKED_DETECTIONS = [
-  { label: 'red target',    point: [542, 102], box_2d: [435,   0, 650, 201], type: 'target' },
-  { label: 'blue target',   point: [435, 310], box_2d: [342, 210, 532, 408], type: 'target' },
-  { label: 'green block',   point: [638, 230], box_2d: [535, 158, 742, 305], type: 'block' },
-  { label: 'dark cylinder', point: [585, 358], box_2d: [450, 305, 722, 405], type: 'obstacle' },
-  { label: 'dark cylinder', point: [445, 458], box_2d: [312, 420, 582, 498], type: 'obstacle' },
-  { label: 'blue block',    point: [545, 620], box_2d: [452, 560, 650, 690], type: 'block' },
-  { label: 'red block',     point: [755, 588], box_2d: [652, 515, 878, 658], type: 'block' },
-];
-
-const PREBAKED_PLAN = [
-  { function: 'move',            args: [588, 755, true] },
-  { function: 'move',            args: [588, 755, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'setGripperState', args: [false] },
-  { function: 'move',            args: [588, 755, true] },
-  { function: 'move',            args: [102, 542, true] },
-  { function: 'move',            args: [102, 542, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move',            args: [102, 542, true] },
-  { function: 'move',            args: [620, 545, true] },
-  { function: 'move',            args: [620, 545, false] },
-  { function: 'setGripperState', args: [false] },
-  { function: 'move',            args: [620, 545, true] },
-  { function: 'move',            args: [310, 435, true] },
-  { function: 'move',            args: [310, 435, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move',            args: [310, 435, true] },
-  { function: 'move',            args: [230, 638, true] },
-  { function: 'move',            args: [230, 638, false] },
-  { function: 'setGripperState', args: [false] },
-  { function: 'move',            args: [230, 638, true] },
-  { function: 'move',            args: [600, 700, true] },
-  { function: 'move',            args: [600, 700, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move',            args: [600, 700, true] },
-];
 
 // --- Gemini API call ---
 
@@ -198,7 +159,7 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
       }
       log(`Extracted ${obstacles.length} 3D obstacles from pre-baked detections`, 'info');
     }
-    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles };
+    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles, planText: PREBAKED_PLAN_TEXT };
   }
 
   // Prompt 1: detect all objects with bounding boxes
@@ -262,6 +223,16 @@ Include brief reasoning before the JSON output.`;
   const planSteps = parseJson(resp2);
   log(`Plan has ${planSteps.length} steps`, 'success');
 
+  // Extract the reasoning text that precedes the JSON in the response
+  const planText = (() => {
+    const raw = resp2.trim();
+    const fenceIdx = raw.indexOf('```');
+    if (fenceIdx > 0) return raw.slice(0, fenceIdx).trim();
+    const jsonIdx = raw.search(/[\[{]/);
+    if (jsonIdx > 0) return raw.slice(0, jsonIdx).trim();
+    return '';
+  })();
+
   // Extract 3D obstacle cylinders from bounding boxes
   const obstacles = [];
   if (cameraParams) {
@@ -278,7 +249,7 @@ Include brief reasoning before the JSON output.`;
     }
   }
 
-  return { detections, planSteps, obstacles };
+  return { detections, planSteps, obstacles, planText };
 }
 
 /**
