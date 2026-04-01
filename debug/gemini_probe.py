@@ -22,6 +22,8 @@ Detect all objects and obstacles on the table. For each, return:
 - "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
 - "type": one of "block", "target", "obstacle"
 
+Do not include the robot gripper.
+
 Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]
 """
 

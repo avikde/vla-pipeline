@@ -62,23 +62,24 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { label: 'red circle',    point: [540,  99], box_2d: [436,   0, 650, 201], type: 'target' },
-  { label: 'green block',   point: [626, 230], box_2d: [538, 157, 742, 303], type: 'block' },
-  { label: 'blue circle',   point: [438, 308], box_2d: [342, 211, 532, 407], type: 'target' },
-  { label: 'dark cylinder', point: [588, 354], box_2d: [450, 306, 720, 404], type: 'obstacle' },
-  { label: 'dark cylinder', point: [440, 460], box_2d: [314, 420, 582, 497], type: 'obstacle' },
-  { label: 'blue block',    point: [574, 552], box_2d: [480, 488, 676, 616], type: 'block' },
-  { label: 'red block',     point: [758, 584], box_2d: [654, 516, 874, 658], type: 'block' },
+  { label: 'red target mat', point: [520, 100], box_2d: [435,   0, 650, 200], type: 'target' },
+  { label: 'blue target mat', point: [430, 305], box_2d: [340, 210, 530, 407], type: 'target' },
+  { label: 'green block',    point: [625, 230], box_2d: [535, 160, 740, 305], type: 'block' },
+  { label: 'dark cylinder',  point: [585, 360], box_2d: [450, 305, 720, 405], type: 'obstacle' },
+  { label: 'dark cylinder',  point: [445, 455], box_2d: [315, 420, 580, 497], type: 'obstacle' },
+  { label: 'blue block',     point: [545, 620], box_2d: [455, 560, 650, 690], type: 'block' },
+  { label: 'red block',      point: [755, 590], box_2d: [655, 517, 875, 657], type: 'block' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move',            args: [584, 758, true] },
-  { function: 'move',            args: [584, 758, false] },
+  { function: 'move',            args: [590, 755, true] },
+  { function: 'move',            args: [590, 755, false] },
   { function: 'setGripperState', args: [false] },
-  { function: 'move',            args: [584, 758, true] },
-  { function: 'move',            args: [308, 438, true] },
-  { function: 'move',            args: [308, 438, false] },
+  { function: 'move',            args: [590, 755, true] },
+  { function: 'move',            args: [305, 430, true] },
+  { function: 'move',            args: [305, 430, false] },
   { function: 'setGripperState', args: [true] },
+  { function: 'move',            args: [305, 430, true] },
 ];
 
 // --- Gemini API call ---
@@ -189,6 +190,8 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
 - "point": center location in [y, x] format normalized to 0-1000
 - "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
 - "type": one of "block", "target", "obstacle"
+
+Do not include the robot gripper.
 
 Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
