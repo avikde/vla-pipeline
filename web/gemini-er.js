@@ -105,6 +105,18 @@ async function geminiCall(apiKey, imageBase64, prompt) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
+async function geminiCallWithTicker(apiKey, imageBase64, prompt, log, label) {
+  let dots = 0;
+  const ticker = setInterval(() => {
+    log(`\r${label}${'.'.repeat((++dots % 3) + 1)}`, 'info');
+  }, 500);
+  try {
+    return await geminiCall(apiKey, imageBase64, prompt);
+  } finally {
+    clearInterval(ticker);
+  }
+}
+
 // --- JSON parsing ---
 
 function parseJson(rawText) {
@@ -179,9 +191,9 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
 
     Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
-  log('Detecting objects [Gemini]...', 'info');
+  log('Detecting objects...', 'info');
   let t0 = performance.now();
-  const resp1 = await geminiCall(apiKey, imageBase64, prompt1);
+  const resp1 = await geminiCallWithTicker(apiKey, imageBase64, prompt1, log, 'Waiting on Gemini');
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
   log(`Detection response: ${resp1}`, 'info');
   const detections = parseJson(resp1);
@@ -228,9 +240,9 @@ where each object has a "function" key and an "args" key (a list, not an object)
 Example: [{"function": "move", "args": [586, 760, true]}, ...]
 Include brief reasoning before the JSON output.`;
 
-  log('Generating plan [Gemini]...', 'info');
+  log('Generating plan...', 'info');
   t0 = performance.now();
-  const resp2 = await geminiCall(apiKey, imageBase64, prompt2);
+  const resp2 = await geminiCallWithTicker(apiKey, imageBase64, prompt2, log, 'Waiting on Gemini');
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
   log(`Plan response: ${resp2}`, 'info');
   const planSteps = parseJson(resp2);

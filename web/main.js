@@ -30,10 +30,13 @@ const planTextDiv = document.getElementById('plan-text');
 // --- Logging ---
 function log(msg, level = '') {
   console.log(msg);
-  const el = document.createElement('div');
-  el.textContent = msg;
+  const update = msg.startsWith('\r');
+  const text = update ? msg.slice(1) : msg;
+  const last = logDiv.lastElementChild;
+  const el = (update && last) ? last : document.createElement('div');
+  el.textContent = text;
   if (level) el.className = level;
-  logDiv.appendChild(el);
+  if (!update || !last) logDiv.appendChild(el);
   logDiv.scrollTop = logDiv.scrollHeight;
 }
 
