@@ -18,6 +18,7 @@
     }
   </script>
   <script src="coi-serviceworker.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <!-- Asset preloads removed: they compete for HTTP/1.1 connections on local dev -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -140,6 +141,25 @@
       align-items: flex-start;
       justify-content: center;
     }
+    .blurb {
+      max-width: 900px;
+      width: calc(100% - 2rem);
+      margin: 0.25rem 1rem 0.75rem;
+      font-size: 0.82rem;
+      color: #aaa;
+      line-height: 1.65;
+    }
+    .blurb p { margin-bottom: 0.6rem; }
+    .blurb a { color: #6ea8fe; text-decoration: none; }
+    .blurb a:hover { text-decoration: underline; }
+    .blurb strong { color: #ccc; }
+    .blurb .mermaid {
+      margin-top: 0.75rem;
+      overflow-x: auto;
+    }
+    /* Mermaid dark theme tweaks */
+    .blurb .mermaid svg { max-width: 100%; }
+
     @media (max-width: 700px) {
       .controls { flex-direction: column; align-items: stretch; }
       .ctrl-divider { border: none; border-top: 1px solid #2a3a5c; padding: 0.4rem 0; }
@@ -303,6 +323,41 @@
     </p>
   </header>
 
+  <div class="blurb">
+    <p>
+      End-to-end <strong>Vision-Language-Action (VLA)</strong> models bundle perception, reasoning, and motor control
+      into a single network — but that means the camera, kinematics, and training scenarios are all baked in together.
+      Swap the robot arm, move the camera, or add an unexpected obstacle and you're retraining from scratch.
+    </p>
+    <p>
+      This demo takes the <strong><a href="https://www.avikde.me/p/the-architecture-behind-end-to-end" target="_blank" rel="noopener">sense-plan-act</a></strong> view instead:
+      Gemini handles the semantics (what is the scene, what should I do?), while
+      classical geometry and kinematics handle the physical specifics. Each layer is independently
+      swappable — the AI models have no knowledge of the robot's embodiment.
+      The result is <strong>reactive obstacle avoidance</strong> that emerges from the planning layer,
+      not from training data.
+    </p>
+    <div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "13px"}} }%%
+flowchart LR
+    A["👁️ Perception\n―――――\nGemini"] --> B["🧠 Task Reasoning\n―――――\nGemini"]
+    B --> C["📐 Spatial Understanding\n―――――\nCamera geometry"]
+    C --> D["⚙️ Planning & Obstacle Avoidance\n―――――\nIK / kinematics"]
+    D --> E["🤖 Motors"]
+    subgraph SENSE[ ]
+        A
+    end
+    subgraph PLAN[ ]
+        B
+        C
+        D
+    end
+    subgraph ACT[ ]
+        E
+    end
+    </div>
+  </div>
+
   <div class="controls">
     <div class="ctrl-option">
       <button id="btn-prebaked" class="primary">Use Cached Task</button>
@@ -368,6 +423,7 @@
     }
   }
   </script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
   <script type="module" src="main.js"></script>
 </body>
 </html>
