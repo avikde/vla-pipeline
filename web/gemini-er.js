@@ -185,15 +185,21 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
   }
 
   // Prompt 1: detect all objects with bounding boxes
-  const prompt1 = `Detect all objects and obstacles on the table. For each, return:
-- "label": a short identifying name (e.g. "red block", "dark cylinder", "blue target mat")
-- "point": center location in [y, x] format normalized to 0-1000
-- "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
-- "type": one of "block", "target", "obstacle"
+  const prompt1 = `
+    Detect all objects on the table. Classify each using these strict rules:
+    - "block": a small colored cube or rectangular solid that the robot can pick up and place (e.g. "red block", "green block")
+    - "target": a flat colored mat, marker, or region on the table surface indicating a destination (e.g. "blue target", "yellow target mat")
+    - "obstacle": any other object that is neither a graspable block nor a target mat (e.g. cylinders, bowls, irregular shapes)
 
-Do not include the robot gripper.
+    Do NOT classify a block as an obstacle. Do NOT include the robot arm or gripper.
 
-Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
+    For each detected object return:
+    - "label": a short name using color + type (e.g. "red block", "blue target", "dark cylinder")
+    - "point": center location in [y, x] format normalized to 0-1000
+    - "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
+    - "type": one of "block", "target", "obstacle"
+
+    Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
   log('Detecting objects [Gemini]...', 'info');
   let t0 = performance.now();
