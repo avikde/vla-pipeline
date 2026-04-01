@@ -136,7 +136,9 @@
       border-left: 1px solid #2a3a5c;
       align-self: stretch;
       display: flex;
-      align-items: center;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
     }
     @media (max-width: 700px) {
       .controls { flex-direction: column; align-items: stretch; }
@@ -321,6 +323,9 @@
     <div class="ctrl-cam">
       <label class="checkbox-label">
         <input type="checkbox" id="chk-free-cam"> Free camera
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-debug-wireframes"> Debug wireframes
       </label>
     </div>
   </div>

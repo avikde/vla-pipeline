@@ -145,7 +145,7 @@ export function captureSceneImage(renderer) {
  *   Camera parameters and depth buffer for 3D obstacle extraction
  * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
-export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task) {
+export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task, onDetected = null) {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
     const obstacles = [];
@@ -187,6 +187,19 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
   const detections = parseJson(resp1);
 
   log(`Detections: ${detections.length} objects`, 'success');
+
+  // Notify caller after detection, before planning
+  if (onDetected && cameraParams) {
+    const { camPos, camRot, fovyDeg, depthBuffer } = cameraParams;
+    const earlyObstacles = [];
+    for (const det of detections) {
+      if (det.box_2d) {
+        const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg, depthBuffer);
+        earlyObstacles.push({ label: det.label, type: det.type, ...obs3d });
+      }
+    }
+    onDetected(detections, earlyObstacles);
+  }
 
   // Prompt 2: task-level plan using full detection list
   // Gemini detection points are [y, x]; move(x, y) takes x first — swap here.

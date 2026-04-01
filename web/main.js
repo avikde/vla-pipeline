@@ -20,6 +20,7 @@ const taskInput = document.getElementById('task-input');
 const DEFAULT_TASK = 'Put the blocks away where they belong';
 taskInput.placeholder = DEFAULT_TASK;
 const chkFreeCam = document.getElementById('chk-free-cam');
+const chkDebugWireframes = document.getElementById('chk-debug-wireframes');
 const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
 const statusEe = document.getElementById('status-ee');
@@ -291,6 +292,10 @@ async function runPipeline(useApiKey) {
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
     const { detections, planSteps, obstacles: detectedObstacles, planText } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
+      (dets, obs) => {
+        mujocoScene.updateObstacleMarkers(obs);
+        mujocoScene.render();
+      },
     );
 
     // Render plan reasoning text (basic **bold** markdown)
@@ -356,6 +361,13 @@ btnPrebaked.addEventListener('click', () => {
 chkFreeCam.addEventListener('change', () => {
   if (mujocoScene) {
     mujocoScene.setFreeCam(chkFreeCam.checked);
+    mujocoScene.render();
+  }
+});
+
+chkDebugWireframes.addEventListener('change', () => {
+  if (mujocoScene) {
+    mujocoScene.setDebugWireframes(chkDebugWireframes.checked);
     mujocoScene.render();
   }
 });
