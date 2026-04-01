@@ -327,21 +327,26 @@
     <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "13px"}} }%%
 flowchart LR
-    A["👁️ Perception\n―――――\nGemini"] --> B["🧠 Task Reasoning\n―――――\nGemini"]
-    B --> C["📐 Spatial Understanding\n―――――\nCamera geometry"]
-    C --> D["⚙️ Planning & Obstacle Avoidance\n―――――\nIK / kinematics"]
-    D --> E["🤖 Motors"]
-    subgraph SENSE[ ]
-        A
+    subgraph SENSE["SENSE"]
+        A["👁️ Perception\n―――――\nGemini"]
+        B["🧠 Task Reasoning\n―――――\nGemini"]
     end
-    subgraph PLAN[ ]
-        B
-        C
-        D
+    subgraph PLAN["PLAN"]
+        C["📐 Spatial Understanding\n―――――\nCamera geometry"]
+        D["⚙️ Planning & Avoidance\n―――――\nKinematics"]
     end
-    subgraph ACT[ ]
-        E
+    subgraph ACT["ACT"]
+        E["🤖 Motors"]
     end
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    style A fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style B fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style C fill:#1a4e2e,stroke:#339933,color:#cec
+    style D fill:#1a4e2e,stroke:#339933,color:#cec
+    style E fill:#1a4e2e,stroke:#339933,color:#cec
     </div>
   </div>
 

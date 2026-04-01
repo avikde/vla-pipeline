@@ -4,10 +4,30 @@ End-to-end Vision-Language-Action (VLA) models bundle perception, reasoning, and
 
 This demo combines the flexible task programming and reasoning of Gemini ER (what is the scene, and what should I do?) and classical camera calibration, kinematics, motion controllers. Each layer is independently swappable, and the AI model doesn't need to know anything about the robot's embodiment. This recreates the modularity of a [Sense-Plan-Act](https://www.avikde.me/the-architecture-behind-end-to-end) architecture while retaining the semantic reasoning of a foundation AI model.
 
-```
-👁️ Perception  ──►  🧠 Task Reasoning  ──►  📐 Spatial Understanding  ──►  ⚙️ Planning & Obstacle Avoidance  ──►  🤖 Motors
-   (Gemini)             (Gemini)                (camera geometry)                   (IK / kinematics)
-◄──────────── SENSE ────────────────────────────────────── PLAN ──────────────────────────────────────────────────► ACT ►
+```mermaid
+flowchart LR
+    subgraph SENSE["SENSE"]
+        P["👁️ Perception\n(Gemini)"]
+        TR["🧠 Task Reasoning\n(Gemini)"]
+    end
+    subgraph PLAN["PLAN"]
+        SU["📐 Spatial Understanding\n(camera geometry)"]
+        PA["⚙️ Planning & Avoidance\n(kinematics)"]
+    end
+    subgraph ACT["ACT"]
+        M["🤖 Motors"]
+    end
+
+    P --> TR
+    TR --> SU
+    SU --> PA
+    PA --> M
+
+    style P fill:#ADD8E6,stroke:#6699CC
+    style TR fill:#ADD8E6,stroke:#6699CC
+    style SU fill:#90EE90,stroke:#339933
+    style PA fill:#90EE90,stroke:#339933
+    style M fill:#90EE90,stroke:#339933
 ```
 
 ## Web demo (start here)
