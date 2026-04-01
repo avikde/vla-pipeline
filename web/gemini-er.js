@@ -62,25 +62,25 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { label: 'red circle target', point: [520, 100],  box_2d: [440,   0, 650, 200], type: 'target' },
-  { label: 'green block',       point: [630, 230],  box_2d: [530, 158, 730, 300], type: 'block' },
-  { label: 'blue circle target',point: [440, 300],  box_2d: [350, 210, 530, 400], type: 'target' },
-  { label: 'dark cylinder obstacle', point: [440, 350], box_2d: [290, 300, 550, 390], type: 'obstacle' },
-  { label: 'dark cylinder obstacle', point: [530, 450], box_2d: [400, 410, 660, 490], type: 'obstacle' },
-  { label: 'blue block',        point: [570, 550],  box_2d: [480, 490, 670, 620], type: 'block' },
-  { label: 'red block',         point: [750, 580],  box_2d: [660, 510, 870, 650], type: 'block' },
+  { label: 'red target',    point: [540,  96], box_2d: [437,   0, 649, 203], type: 'target' },
+  { label: 'green block',   point: [629, 230], box_2d: [531, 157, 737, 303], type: 'block' },
+  { label: 'blue target',   point: [435, 311], box_2d: [343, 212, 531, 408], type: 'target' },
+  { label: 'dark cylinder', point: [587, 357], box_2d: [450, 305, 720, 403], type: 'obstacle' },
+  { label: 'dark cylinder', point: [439, 459], box_2d: [314, 419, 582, 497], type: 'obstacle' },
+  { label: 'blue block',    point: [548, 620], box_2d: [456, 560, 649, 688], type: 'block' },
+  { label: 'red block',     point: [757, 583], box_2d: [657, 517, 873, 656], type: 'block' },
 ];
 
 const PREBAKED_PLAN = [
-  { function: 'move',             args: [230, 630, true] },
-  { function: 'setGripperState',  args: [true] },
-  { function: 'move',             args: [230, 630, false] },
-  { function: 'setGripperState',  args: [false] },
-  { function: 'move',             args: [230, 630, true] },
-  { function: 'move',             args: [100, 520, true] },
-  { function: 'move',             args: [100, 520, false] },
-  { function: 'setGripperState',  args: [true] },
-  { function: 'move',             args: [100, 520, true] },
+  { function: 'move',            args: [583, 757, true] },
+  { function: 'setGripperState', args: [true] },
+  { function: 'move',            args: [583, 757, false] },
+  { function: 'setGripperState', args: [false] },
+  { function: 'move',            args: [583, 757, true] },
+  { function: 'move',            args: [311, 435, true] },
+  { function: 'move',            args: [311, 435, false] },
+  { function: 'setGripperState', args: [true] },
+  { function: 'move',            args: [311, 435, true] },
 ];
 
 // --- Gemini API call ---
@@ -186,13 +186,21 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
   }
 
   // Prompt 1: detect all objects with bounding boxes
-  const prompt1 = `Detect all objects and obstacles on the table. For each, return:
-- "label": a short identifying name (e.g. "red block", "dark cylinder", "blue target mat")
-- "point": center location in [y, x] format normalized to 0-1000
-- "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
-- "type": one of "block", "target", "obstacle"
+  const prompt1 = `
+    Detect all objects on the table. Classify each using these strict rules:
+    - "block": a small colored cube or rectangular solid that the robot can pick up and place (e.g. "red block", "green block")
+    - "target": a flat colored mat, marker, or region on the table surface indicating a destination (e.g. "blue target", "yellow target mat")
+    - "obstacle": any other object that is neither a graspable block nor a target mat (e.g. cylinders, bowls, irregular shapes)
 
-Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
+    Do NOT classify a block as an obstacle. Do NOT include the robot arm or gripper.
+
+    For each detected object return:
+    - "label": a short name using color + type (e.g. "red block", "blue target", "dark cylinder")
+    - "point": center location in [y, x] format normalized to 0-1000
+    - "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
+    - "type": one of "block", "target", "obstacle"
+
+    Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
   log('Detecting objects [Gemini]...', 'info');
   let t0 = performance.now();

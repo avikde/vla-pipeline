@@ -7,7 +7,7 @@
 
 import {
   vec3, sub, scale, norm, clamp, ee6dToPosRot, gripperActionToCtrl,
-  matMul, matTranspose, matEye, matSolve,
+  matMul, matTranspose, matLeastSquares,
   m3get, m3trace, m3mul, m3transpose,
 } from './math-utils.js';
 
@@ -24,12 +24,10 @@ export class Controller {
    * @param {object} options
    */
   constructor(mj, model, {
-    damping = 1e-4,
     useOrientation = true,
   } = {}) {
     this._mj = mj;
     this._model = model;
-    this._damping = damping;
     this._useOrientation = useOrientation;
 
     // Allocate scratch data
@@ -64,14 +62,64 @@ export class Controller {
   }
 
   /**
+   * Compute EE-space repulsive gradient from obstacles: -∂b/∂p (3D vector).
+   * Caller maps to joint space via Jp^+.
+   *
+   * @param {object} scratch - MjData with fwd kinematics already run
+   * @param {Array} obstacles - [{center, horizontal_size, vertical_size, type}, ...]
+   * @returns {Float64Array} g_p (3) — repulsive direction in EE position space
+   */
+  _obstacleGradient(scratch, obstacles) {
+    const OBST_GAIN = 0.0002;
+    const OBST_CUTOFF = 1.5; // normalized distance (1 = surface); skip if farther
+    const EPSILON = 0.01;    // clamps rSafe away from zero at the surface
+
+    const g_p = new Float64Array(3);
+    const eePos = this._eePos(scratch);
+
+    this.lastObstacleGradients = [];
+
+    for (const obs of obstacles) {
+      const { center, horizontal_size: hs, vertical_size: vs, type } = obs;
+      if (type !== 'obstacle') continue;
+      if (!center || !hs || !vs) continue;
+
+      const dx = eePos[0] - center[0];
+      const dy = eePos[1] - center[1];
+      const dz = eePos[2] - center[2];
+
+      // r=1 on ellipsoid surface, r<1 inside, r>1 outside
+      const r = Math.sqrt((dx / hs) ** 2 + (dy / hs) ** 2 + (dz / vs) ** 2);
+
+      const g_p_obs = new Float64Array(3);
+      if (r <= OBST_CUTOFF && r >= 1e-9) {
+        const rSafe = Math.max(r - 1.0, EPSILON);
+        const b = 1.0 / (rSafe * rSafe);
+
+        // -∂b/∂p_x = +2b/(rSafe·r) · (dx/hs²)  (repels: positive when dx>0)
+        const sc = OBST_GAIN * 2.0 * b / (rSafe * r);
+        g_p_obs[0] = sc * (dx / (hs * hs));
+        g_p_obs[1] = sc * (dy / (hs * hs));
+        g_p_obs[2] = sc * (dz / (vs * vs));
+        g_p[0] += g_p_obs[0];
+        g_p[1] += g_p_obs[1];
+        g_p[2] += g_p_obs[2];
+      }
+      this.lastObstacleGradients.push({ center: new Float64Array(center), g_p: g_p_obs });
+    }
+    return g_p;
+  }
+
+  /**
    * Compute one vel-control step from current qpos toward the target EE pose.
    * Returns Float32Array(7) ctrl target = qpos + dq.
    *
    * @param {Float64Array|Float32Array} qpos - Current generalized positions
    * @param {Float64Array|Float32Array} action10d - [xyz(3), rot6d(6), gripper(1)]
+   * @param {Array} obstacles - optional obstacle array for avoidance
    * @returns {Float32Array} ctrl_target [6 joints + 1 gripper]
    */
-  calcPosTarget(qpos, action10d) {
+  calcPosTarget(qpos, action10d, obstacles = []) {
     const MAX_POS_ERR = 0.2; // m — caps dq magnitude without explicit clamping
     const MAX_ROT_ERR = 1.0; // rad — analogous to MAX_POS_ERR
     const ORI_WEIGHT = 1.5; // scale orientation [rad] err vs. pos [m]
@@ -149,23 +197,13 @@ export class Controller {
       err = new Float64Array([posErr[0], posErr[1], posErr[2]]);
     }
 
-    // Damped pseudo-inverse: dq = J^T (J J^T + lambda I)^{-1} err
-    const Jt = matTranspose(J, m, nArm);
-    const JJt = matMul(J, m, nArm, Jt, m);
-    const lambdaI = matEye(m);
-    for (let i = 0; i < m * m; i++) lambdaI[i] *= this._damping;
-    const JJtDamped = new Float64Array(m * m);
-    for (let i = 0; i < m * m; i++) JJtDamped[i] = JJt[i] + lambdaI[i];
-    const Im = matEye(m);
-    const JJtInv = matSolve(JJtDamped, m, Im, m);
-    const Jpinv = matMul(Jt, nArm, m, JJtInv, m);
-
+    const dq_task = matLeastSquares(J, m, nArm, err);
+    // Map EE-space repulsive gradient to joint space via Jp^+ (IK step),
+    // not Jp^T — we want the joint motion that produces the EE displacement.
+    const g_p = this._obstacleGradient(scratch, obstacles);
+    const Jo = matLeastSquares(Jp, 3, nArm, g_p);
     const dq = new Float64Array(nArm);
-    for (let i = 0; i < nArm; i++) {
-      let s = 0;
-      for (let j = 0; j < m; j++) s += Jpinv[i * m + j] * err[j];
-      dq[i] = s;
-    }
+    for (let i = 0; i < nArm; i++) dq[i] = dq_task[i] + Jo[i];
 
     // Clamp total step size to limit arm speed
     const dqNorm = Math.sqrt(dq.reduce((s, v) => s + v * v, 0));

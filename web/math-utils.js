@@ -181,6 +181,15 @@ export function matSolve(A, n, B, m) {
   return X;
 }
 
+/** Minimum-norm least-squares solution: J^T (J J^T)^{-1} err.
+ * J is (m x n), err is (m), returns dq (n). */
+export function matLeastSquares(J, m, n, err) {
+  const Jt = matTranspose(J, m, n);
+  const JJt = matMul(J, m, n, Jt, m);
+  const sol = matSolve(JJt, m, err, 1);
+  return matMul(Jt, n, m, sol, 1);
+}
+
 /** Vector L2 norm for Float64Array of any length. */
 export function vecNorm(v) {
   let s = 0;
@@ -309,7 +318,7 @@ export function pixelToWorld3d(px, py, camPos, camRot, fovyDeg, tableZ = 0.02) {
 // --- Gripper mapping ---
 
 export const GRIPPER_OPEN = 0.037;
-export const GRIPPER_CLOSE = 0.015;
+export const GRIPPER_CLOSE = 0.01;
 
 /** Map gripper scalar (0=closed, 1=open) to finger ctrl [m]. */
 export function gripperActionToCtrl(gripperVal) {

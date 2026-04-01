@@ -17,7 +17,7 @@ const btnRun = document.getElementById('btn-run');
 const btnPrebaked = document.getElementById('btn-prebaked');
 const apiKeyInput = document.getElementById('api-key');
 const taskInput = document.getElementById('task-input');
-const DEFAULT_TASK = 'Place the green block on the red target';
+const DEFAULT_TASK = 'Place the red block on the blue target';
 taskInput.placeholder = DEFAULT_TASK;
 const chkFreeCam = document.getElementById('chk-free-cam');
 const statusSim = document.getElementById('status-sim');
@@ -39,15 +39,42 @@ function log(msg, level = '') {
 let mujocoScene = null;
 let controller = null;
 let waypoints = [];
+let obstacles = [];
 let currentWpIdx = 0;
 let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
 let animationId = null;
+let THREE = null;
 
-// Steps per waypoint before moving on
-const STEPS_PER_WAYPOINT = 200;
-const STEPS_GRIPPER_CHANGE = 500; // extra dwell for gripper open/close to settle
+// Debug: per-obstacle gradient arrows
+let _debugArrows = [];
+const ARROW_SCALE = 10; // multiply g_p magnitude (meters) to get visible arrow length
+
+function updateDebugArrows(gradients) {
+  for (const arrow of _debugArrows) mujocoScene.scene.remove(arrow);
+  _debugArrows = [];
+  for (const { center, g_p } of gradients) {
+    const mag = Math.sqrt(g_p[0] ** 2 + g_p[1] ** 2 + g_p[2] ** 2);
+    if (mag < 1e-12) continue;
+    const dir = new THREE.Vector3(g_p[0] / mag, g_p[1] / mag, g_p[2] / mag);
+    const origin = new THREE.Vector3(center[0], center[1], center[2]);
+    const length = Math.min(mag * ARROW_SCALE, 0.1);
+    const arrow = new THREE.ArrowHelper(dir, origin, length, 0xff6600, length * 0.3, length * 0.2);
+    mujocoScene.scene.add(arrow);
+    _debugArrows.push(arrow);
+  }
+}
+
+// Waypoint convergence thresholds
+const CONVERGE_POS_THRESH = 0.03; // [m] Advance when EE is within x cm of target
+const MIN_STEPS_PER_WAYPOINT = 50; // prevent instant skip if arm starts near target
+const MAX_STEPS_PER_WAYPOINT = 800; // safety timeout if arm can't reach
+const STEPS_GRIPPER_CHANGE = 500; // step-based dwell for gripper open/close to settle
 const PHYSICS_STEPS_PER_FRAME = 5;
+
+// Cached body IDs (set after scene init)
+let lfBodyId = null;
+let rfBodyId = null;
 
 // --- Restore API key from localStorage ---
 const savedKey = localStorage.getItem('gemini-api-key');
@@ -75,6 +102,7 @@ async function init() {
     const mathModule = await import('./math-utils.js');
     eulerToRotationMatrix = mathModule.eulerToRotationMatrix;
     rotationMatrixTo6d = mathModule.rotationMatrixTo6d;
+    THREE = await import('three');
     log('Modules loaded.', 'info');
 
     mujocoScene = await initScene(
@@ -86,6 +114,8 @@ async function init() {
     );
 
     controller = new Controller(mujocoScene.mj, mujocoScene.model);
+    lfBodyId = mujocoScene.model.body('wx250s/left_finger_link').id;
+    rfBodyId = mujocoScene.model.body('wx250s/right_finger_link').id;
 
     mujocoScene.setVisibleBodies(null); // show all
 
@@ -138,10 +168,13 @@ function animate() {
   if (currentWpIdx < waypoints.length) {
     const wp = waypoints[currentWpIdx];
     const action = waypointToAction10d(wp);
-    const ctrlTarget = controller.calcPosTarget(mujocoScene.data.qpos, action);
+    const ctrlTarget = controller.calcPosTarget(mujocoScene.data.qpos, action, obstacles);
 
     if (ctrlTarget) {
       Controller.applyControl(mujocoScene.data.ctrl, ctrlTarget);
+    }
+    if (controller.lastObstacleGradients?.length) {
+      updateDebugArrows(controller.lastObstacleGradients);
     }
 
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
@@ -150,8 +183,24 @@ function animate() {
       wpSteps++;
     }
 
-    const dwell = wp.gripperChange ? STEPS_GRIPPER_CHANGE : STEPS_PER_WAYPOINT;
-    if (wpSteps >= dwell) {
+    // Compute current EE position (finger midpoint)
+    const d = mujocoScene.data;
+    const ex = (d.xpos[lfBodyId * 3] + d.xpos[rfBodyId * 3]) / 2;
+    const ey = (d.xpos[lfBodyId * 3 + 1] + d.xpos[rfBodyId * 3 + 1]) / 2;
+    const ez = (d.xpos[lfBodyId * 3 + 2] + d.xpos[rfBodyId * 3 + 2]) / 2;
+
+    let shouldAdvance;
+    if (wp.gripperChange) {
+      shouldAdvance = wpSteps >= STEPS_GRIPPER_CHANGE;
+    } else {
+      const dx = ex - wp.xyz[0], dy = ey - wp.xyz[1], dz = ez - wp.xyz[2];
+      const posErr = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const timedOut = wpSteps >= MAX_STEPS_PER_WAYPOINT;
+      if (timedOut && wpSteps === MAX_STEPS_PER_WAYPOINT) log(`Waypoint ${currentWpIdx} timeout (err=${posErr.toFixed(3)}m)`, 'warn');
+      shouldAdvance = wpSteps >= MIN_STEPS_PER_WAYPOINT && (posErr < CONVERGE_POS_THRESH || timedOut);
+    }
+
+    if (shouldAdvance) {
       wpSteps = 0;
       currentWpIdx++;
       updateWaypointUI();
@@ -159,6 +208,9 @@ function animate() {
         log(`Waypoint ${currentWpIdx}/${waypoints.length}`, 'info');
       }
     }
+
+    // Status bar EE display (reuse computed values)
+    statusEe.textContent = `EE: (${ex.toFixed(3)}, ${ey.toFixed(3)}, ${ez.toFixed(3)})`;
   } else {
     // Done with all waypoints
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
@@ -180,13 +232,6 @@ function animate() {
 
   // Status bar
   statusStep.textContent = `Step: ${simStep}`;
-  const d = mujocoScene.data;
-  const lfId = mujocoScene.model.body('wx250s/left_finger_link').id;
-  const rfId = mujocoScene.model.body('wx250s/right_finger_link').id;
-  const ex = (d.xpos[lfId * 3] + d.xpos[rfId * 3]) / 2;
-  const ey = (d.xpos[lfId * 3 + 1] + d.xpos[rfId * 3 + 1]) / 2;
-  const ez = (d.xpos[lfId * 3 + 2] + d.xpos[rfId * 3 + 2]) / 2;
-  statusEe.textContent = `EE: (${ex.toFixed(3)}, ${ey.toFixed(3)}, ${ez.toFixed(3)})`;
 
   animationId = requestAnimationFrame(animate);
 }
@@ -243,7 +288,7 @@ async function runPipeline(useApiKey) {
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const task = taskInput.value.trim() || DEFAULT_TASK;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
-    const { detections, planSteps, obstacles } = await detectAndPlan(
+    const { detections, planSteps, obstacles: detectedObstacles } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
     );
 
@@ -251,6 +296,7 @@ async function runPipeline(useApiKey) {
     log(`Plan: ${planSteps.length} steps`, 'info');
 
     // Visualize 3D obstacles
+    obstacles = detectedObstacles;
     mujocoScene.updateObstacleMarkers(obstacles);
 
     // Convert plan to 3D waypoints

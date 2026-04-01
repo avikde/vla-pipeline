@@ -27,15 +27,15 @@
 
     <!-- Blocks -->
     <body name="red_block" pos="0.2 -0.1 0.02">
-      <geom name="red_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.8 0.1 0.1 1" mass="0.05"/>
+      <geom name="red_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.8 0.1 0.1 1" mass="0.05" friction="1.5 0.005 0.0001"/>
       <freejoint/>
     </body>
     <body name="green_block" pos="0.15 0.05 0.02">
-      <geom name="green_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.1 0.8 0.1 1" mass="0.05"/>
+      <geom name="green_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.1 0.8 0.1 1" mass="0.05" friction="1.5 0.005 0.0001"/>
       <freejoint/>
     </body>
-    <body name="blue_block" pos="0.25 -0.05 0.02">
-      <geom name="blue_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.1 0.1 0.8 1" mass="0.05"/>
+    <body name="blue_block" pos="0.28 -0.07 0.02">
+      <geom name="blue_block_geom" type="box" size="0.02 0.02 0.02" rgba="0.1 0.1 0.8 1" mass="0.05" friction="1.5 0.005 0.0001"/>
       <freejoint/>
     </body>
 
@@ -48,10 +48,10 @@
     </body>
 
     <!-- Obstacles between red block and blue target -->
-    <body name="obstacle_1" pos="0.22 -0.02 0.05" mocap="true">
+    <body name="obstacle_1" pos="0.18 0.0 0.05" mocap="true">
       <geom name="obstacle_1_geom" type="cylinder" size="0.015 0.05" rgba="0.15 0.15 0.15 1"/>
     </body>
-    <body name="obstacle_2" pos="0.23 0.05 0.05" mocap="true">
+    <body name="obstacle_2" pos="0.25 0.0 0.05" mocap="true">
       <geom name="obstacle_2_geom" type="cylinder" size="0.015 0.05" rgba="0.15 0.15 0.15 1"/>
     </body>
 

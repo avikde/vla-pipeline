@@ -11,16 +11,12 @@ Usage:
 
 import argparse
 import subprocess
-import sys
 
 import mujoco
 import numpy as np
 from huggingface_hub import hf_hub_download
 import pandas as pd
 from PIL import Image, ImageDraw
-
-sys.path.insert(0, "scripts")
-import widowx_control as ctrl
 
 REPO = "IPEC-COMMUNITY/bridge_orig_lerobot"
 
@@ -64,7 +60,7 @@ print("\nRendering MuJoCo cameras...")
 model = mujoco.MjModel.from_xml_path("web/widowx/widowx_vision_scene.xml")
 data = mujoco.MjData(model)
 data.qpos[:8] = model.keyframe("home").qpos[:8]
-data.ctrl[:] = model.keyframe("home").ctrl
+data.ctrl[:] = model.keyframe("home").qpos[:7]
 for _ in range(100):
     mujoco.mj_step(model, data)
 
@@ -74,12 +70,6 @@ renderer.update_scene(data, camera=model.camera("primary").id)
 raw = renderer.render()
 img = Image.fromarray(raw).resize((256, 256))
 img.save("mujoco_primary_frame0.png")
-
-mj_state = ctrl.get_ee_state_8d(model, data)
-print(f"\nMuJoCo state:")
-print(f"  x={mj_state[0]:.4f} y={mj_state[1]:.4f} z={mj_state[2]:.4f}")
-print(f"  roll={mj_state[3]:.4f} pitch={mj_state[4]:.4f} yaw={mj_state[5]:.4f}")
-print(f"  gripper={mj_state[7]:.4f}")
 
 # --- Build comparison image (1x2: BridgeData vs MuJoCo) ---
 W, H, GAP, HDR = 256, 256, 10, 25

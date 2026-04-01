@@ -30,7 +30,7 @@
       <default class="collision">
         <geom group="3" type="mesh"/>
         <default class="sphere_collision">
-          <geom type="sphere" size="0.0006" rgba="1 0 0 1"/>
+          <geom type="sphere" size="0.0006" rgba="1 0 0 1" friction="2.0 0.01 0.001"/>
         </default>
       </default>
     </default>
