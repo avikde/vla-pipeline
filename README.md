@@ -1,5 +1,15 @@
 # Embodied reasoning hierarchical robotics pipeline demo
 
+End-to-end **Vision-Language-Action (VLA)** models bundle perception, reasoning, and motor control into a single network, but that means the camera, kinematics, and training scenarios are all baked in together. Swap the robot arm, move the camera, or add an unexpected obstacle and you're retraining from scratch.
+
+This demo combines the strengths of a modular **[Sense-Plan-Act](https://www.avikde.me/p/the-architecture-behind-end-to-end)** architecture with modern AI for higher-level reasoning and cognition. Gemini handles the semantics (what is the scene, what should I do?), while classical geometry and kinematics handle the physical specifics. Each layer is independently swappable, and the AI models don't need to know anything about the robot's embodiment.
+
+```
+👁️ Perception  ──►  🧠 Task Reasoning  ──►  📐 Spatial Understanding  ──►  ⚙️ Planning & Obstacle Avoidance  ──►  🤖 Motors
+   (Gemini)             (Gemini)                (camera geometry)                   (IK / kinematics)
+◄──────────── SENSE ────────────────────────────────────── PLAN ──────────────────────────────────────────────────► ACT ►
+```
+
 Blog posts for context:
 - [The architecture behind “end-to-end” robotics pipelines](https://www.avikde.me/p/the-architecture-behind-end-to-end)
 - [Debugging as architecture insight: dissecting a VLA
