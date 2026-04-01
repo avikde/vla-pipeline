@@ -51,5 +51,6 @@ Stack: [`@mujoco/mujoco`](https://www.npmjs.com/package/@mujoco/mujoco) WASM (CD
 
 ## Acknowledgements
 
-- **LeRobot Framework:** Open-source robotics ML framework by HuggingFace
 - **WidowX model:** From [google-deepmind/mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie/tree/main/trossen_wx250s)
+- **Google Gemini Robotics ER** [model and description](https://ai.google.dev/gemini-api/docs/robotics-overview)
+- **Claude Code** was used for implementation and debugging
