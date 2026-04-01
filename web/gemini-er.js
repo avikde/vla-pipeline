@@ -62,13 +62,13 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
 // --- Pre-baked plan (fallback when no API key provided) ---
 // Recorded from a successful Gemini ER run on the default scene.
 const PREBAKED_DETECTIONS = [
-  { label: 'red circle',    point: [540,  99], box_2d: [436,   0, 650, 201], type: 'obstacle' },
-  { label: 'green block',   point: [626, 230], box_2d: [538, 157, 742, 303], type: 'obstacle' },
+  { label: 'red circle',    point: [540,  99], box_2d: [436,   0, 650, 201], type: 'target' },
+  { label: 'green block',   point: [626, 230], box_2d: [538, 157, 742, 303], type: 'block' },
   { label: 'blue circle',   point: [438, 308], box_2d: [342, 211, 532, 407], type: 'target' },
   { label: 'dark cylinder', point: [588, 354], box_2d: [450, 306, 720, 404], type: 'obstacle' },
   { label: 'dark cylinder', point: [440, 460], box_2d: [314, 420, 582, 497], type: 'obstacle' },
-  { label: 'blue block',    point: [574, 552], box_2d: [480, 488, 676, 616], type: 'obstacle' },
-  { label: 'red block',     point: [758, 584], box_2d: [654, 516, 874, 658], type: 'obstacle' },
+  { label: 'blue block',    point: [574, 552], box_2d: [480, 488, 676, 616], type: 'block' },
+  { label: 'red block',     point: [758, 584], box_2d: [654, 516, 874, 658], type: 'block' },
 ];
 
 const PREBAKED_PLAN = [

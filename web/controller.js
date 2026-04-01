@@ -71,11 +71,13 @@ export class Controller {
    */
   _obstacleGradient(scratch, obstacles) {
     const OBST_GAIN = 0.0001;
-    const OBST_CUTOFF = 3.0; // normalized distance (1 = surface); skip if farther
+    const OBST_CUTOFF = 1.5; // normalized distance (1 = surface); skip if farther
     const EPSILON = 0.01;    // clamps rSafe away from zero at the surface
 
     const g_p = new Float64Array(3);
     const eePos = this._eePos(scratch);
+
+    this.lastObstacleGradients = [];
 
     for (const obs of obstacles) {
       const { center, horizontal_size: hs, vertical_size: vs, type } = obs;
@@ -88,16 +90,22 @@ export class Controller {
 
       // r=1 on ellipsoid surface, r<1 inside, r>1 outside
       const r = Math.sqrt((dx / hs) ** 2 + (dy / hs) ** 2 + (dz / vs) ** 2);
-      if (r > OBST_CUTOFF || r < 1e-9) continue;
 
-      const rSafe = Math.max(r - 1.0, EPSILON);
-      const b = 1.0 / (rSafe * rSafe);
+      const g_p_obs = new Float64Array(3);
+      if (r <= OBST_CUTOFF && r >= 1e-9) {
+        const rSafe = Math.max(r - 1.0, EPSILON);
+        const b = 1.0 / (rSafe * rSafe);
 
-      // -∂b/∂p_x = +2b/(rSafe·r) · (dx/hs²)  (repels: positive when dx>0)
-      const scale = OBST_GAIN * 2.0 * b / (rSafe * r);
-      g_p[0] += scale * (dx / (hs * hs));
-      g_p[1] += scale * (dy / (hs * hs));
-      g_p[2] += scale * (dz / (vs * vs));
+        // -∂b/∂p_x = +2b/(rSafe·r) · (dx/hs²)  (repels: positive when dx>0)
+        const sc = OBST_GAIN * 2.0 * b / (rSafe * r);
+        g_p_obs[0] = sc * (dx / (hs * hs));
+        g_p_obs[1] = sc * (dy / (hs * hs));
+        g_p_obs[2] = sc * (dz / (vs * vs));
+        g_p[0] += g_p_obs[0];
+        g_p[1] += g_p_obs[1];
+        g_p[2] += g_p_obs[2];
+      }
+      this.lastObstacleGradients.push({ center: new Float64Array(center), g_p: g_p_obs });
     }
     return g_p;
   }
@@ -195,7 +203,7 @@ export class Controller {
     const g_p = this._obstacleGradient(scratch, obstacles);
     const Jo = matLeastSquares(Jp, 3, nArm, g_p);
     const dq = new Float64Array(nArm);
-    for (let i = 0; i < nArm; i++) dq[i] = dq_task[i];// + Jo[i];
+    for (let i = 0; i < nArm; i++) dq[i] = dq_task[i] + Jo[i];
 
     // Clamp total step size to limit arm speed
     const dqNorm = Math.sqrt(dq.reduce((s, v) => s + v * v, 0));

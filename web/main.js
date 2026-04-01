@@ -44,6 +44,26 @@ let currentWpIdx = 0;
 let simStep = 0;
 let wpSteps = 0; // physics steps spent on current waypoint
 let animationId = null;
+let THREE = null;
+
+// Debug: per-obstacle gradient arrows
+let _debugArrows = [];
+const ARROW_SCALE = 10; // multiply g_p magnitude (meters) to get visible arrow length
+
+function updateDebugArrows(gradients) {
+  for (const arrow of _debugArrows) mujocoScene.scene.remove(arrow);
+  _debugArrows = [];
+  for (const { center, g_p } of gradients) {
+    const mag = Math.sqrt(g_p[0] ** 2 + g_p[1] ** 2 + g_p[2] ** 2);
+    if (mag < 1e-12) continue;
+    const dir = new THREE.Vector3(g_p[0] / mag, g_p[1] / mag, g_p[2] / mag);
+    const origin = new THREE.Vector3(center[0], center[1], center[2]);
+    const length = Math.min(mag * ARROW_SCALE, 0.1);
+    const arrow = new THREE.ArrowHelper(dir, origin, length, 0xff6600, length * 0.3, length * 0.2);
+    mujocoScene.scene.add(arrow);
+    _debugArrows.push(arrow);
+  }
+}
 
 // Waypoint convergence thresholds
 const CONVERGE_POS_THRESH = 0.015; // m — advance when EE is within 1.5 cm of target
@@ -82,6 +102,7 @@ async function init() {
     const mathModule = await import('./math-utils.js');
     eulerToRotationMatrix = mathModule.eulerToRotationMatrix;
     rotationMatrixTo6d = mathModule.rotationMatrixTo6d;
+    THREE = await import('three');
     log('Modules loaded.', 'info');
 
     mujocoScene = await initScene(
@@ -151,6 +172,9 @@ function animate() {
 
     if (ctrlTarget) {
       Controller.applyControl(mujocoScene.data.ctrl, ctrlTarget);
+    }
+    if (controller.lastObstacleGradients?.length) {
+      updateDebugArrows(controller.lastObstacleGradients);
     }
 
     for (let i = 0; i < PHYSICS_STEPS_PER_FRAME; i++) {
