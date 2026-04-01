@@ -325,17 +325,20 @@
 
   <div class="blurb">
     <p>
-      End-to-end <strong>Vision-Language-Action (VLA)</strong> models bundle perception, reasoning, and motor control
-      into a single network — but that means the camera, kinematics, and training scenarios are all baked in together.
+      End-to-end <strong>Vision-Language-Action (VLA)</strong> models bundle
+      perception, reasoning, and motor control into a single network, but
+      that means the camera, kinematics, and training scenarios are all
+      baked in together.
       Swap the robot arm, move the camera, or add an unexpected obstacle and you're retraining from scratch.
     </p>
     <p>
-      This demo takes the <strong><a href="https://www.avikde.me/p/the-architecture-behind-end-to-end" target="_blank" rel="noopener">sense-plan-act</a></strong> view instead:
-      Gemini handles the semantics (what is the scene, what should I do?), while
-      classical geometry and kinematics handle the physical specifics. Each layer is independently
-      swappable — the AI models have no knowledge of the robot's embodiment.
-      The result is <strong>reactive obstacle avoidance</strong> that emerges from the planning layer,
-      not from training data.
+      This demo combines the strengths of a modular
+      <strong><a href="https://www.avikde.me/p/the-architecture-behind-end-to-end" target="_blank" rel="noopener">Sense-Plan-Act</a></strong> view with modern AI for higher-level
+      reasoning and cognition.
+      Gemini handles the semantics (what is the scene, what should I do?),
+      while classical geometry and kinematics handle the physical specifics.
+      Each layer is independently swappable, and the AI models don't (need to)
+      know anything about the robot's embodiment.
     </p>
     <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "13px"}} }%%
