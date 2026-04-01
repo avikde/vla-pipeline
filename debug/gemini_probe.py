@@ -17,11 +17,12 @@ from PIL import Image
 
 PROMPT = """
 Detect all objects and obstacles on the table. For each, return:
-- "label": a short name (e.g. "red block", "dark cylinder", "blue target mat")
-- "footprint": center location and size in [y, x, radius, height] format normalized to 0-1000
+- "label": a short identifying name (e.g. "red block", "dark cylinder", "blue target mat")
+- "point": center location in [y, x] format normalized to 0-1000
+- "box_2d": bounding box as [top_y, left_x, bottom_y, right_x] normalized to 0-1000
 - "type": one of "block", "target", "obstacle"
 
-Return JSON: [{"label": ..., "footprint": [y, x, radius, height], "type": ...}, ...]
+Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]
 """
 
 TYPE_COLORS = {"block": "red", "target": "blue", "obstacle": "black"}
@@ -63,19 +64,24 @@ w, h = img.width, img.height
 for det in detections:
     color = TYPE_COLORS.get(det.get("type", ""), "white")
 
-    # Draw footprint: circle + vertical line up to height
-    if "footprint" in det:
-        fy, fx, fsize, fheight = det["footprint"]
-        cx = fx / 1000 * w
-        cy = fy / 1000 * h
-        radius = fsize / 1000 * min(w, h)
-        circle = mpatches.Circle(
-            (cx, cy), radius,
-            linewidth=2, edgecolor=color, facecolor=color, alpha=0.2,
+    # Draw bounding box
+    if "box_2d" in det:
+        top_y, left_x, bot_y, right_x = det["box_2d"]
+        x0, y0 = left_x / 1000 * w, top_y / 1000 * h
+        bw, bh = (right_x - left_x) / 1000 * w, (bot_y - top_y) / 1000 * h
+        rect = mpatches.Rectangle(
+            (x0, y0), bw, bh,
+            linewidth=2, edgecolor=color, facecolor=color, alpha=0.15,
         )
-        ax.add_patch(circle)
-        height_px = fheight / 1000 * h
-        ax.plot([cx, cx], [cy + height_px * 0.5, cy - height_px * 0.5], "-", color=color, linewidth=2)
+        ax.add_patch(rect)
+
+    # Draw center point and label
+    if "point" in det:
+        py, px = det["point"]
+        cx, cy = px / 1000 * w, py / 1000 * h
+        ax.plot(cx, cy, "o", color=color, markersize=6)
+        ax.text(cx + 4, cy - 4, det.get("label", ""), color=color, fontsize=7,
+                bbox={"boxstyle": "round,pad=0.2", "fc": "white", "alpha": 0.6, "ec": "none"})
 
 legend = [mpatches.Patch(color=c, label=t) for t, c in TYPE_COLORS.items()]
 ax.legend(handles=legend, loc="upper right", fontsize=8)
