@@ -70,7 +70,7 @@ export class Controller {
    * @returns {Float64Array} g_p (3) — repulsive direction in EE position space
    */
   _obstacleGradient(scratch, obstacles) {
-    const OBST_GAIN = 0.0001;
+    const OBST_GAIN = 0.0002;
     const OBST_CUTOFF = 1.5; // normalized distance (1 = surface); skip if farther
     const EPSILON = 0.01;    // clamps rSafe away from zero at the surface
 

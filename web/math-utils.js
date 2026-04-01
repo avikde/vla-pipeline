@@ -318,7 +318,7 @@ export function pixelToWorld3d(px, py, camPos, camRot, fovyDeg, tableZ = 0.02) {
 // --- Gripper mapping ---
 
 export const GRIPPER_OPEN = 0.037;
-export const GRIPPER_CLOSE = 0.015;
+export const GRIPPER_CLOSE = 0.01;
 
 /** Map gripper scalar (0=closed, 1=open) to finger ctrl [m]. */
 export function gripperActionToCtrl(gripperVal) {
