@@ -66,7 +66,7 @@ function updateDebugArrows(gradients) {
 }
 
 // Waypoint convergence thresholds
-const CONVERGE_POS_THRESH = 0.015; // m — advance when EE is within 1.5 cm of target
+const CONVERGE_POS_THRESH = 0.03; // [m] Advance when EE is within x cm of target
 const MIN_STEPS_PER_WAYPOINT = 50; // prevent instant skip if arm starts near target
 const MAX_STEPS_PER_WAYPOINT = 800; // safety timeout if arm can't reach
 const STEPS_GRIPPER_CHANGE = 500; // step-based dwell for gripper open/close to settle
