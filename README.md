@@ -1,8 +1,8 @@
 # Embodied reasoning hierarchical robotics pipeline demo
 
-End-to-end **Vision-Language-Action (VLA)** models bundle perception, reasoning, and motor control into a single network, but that means the camera, kinematics, and training scenarios are all baked in together. Swap the robot arm, move the camera, or add an unexpected obstacle and you're retraining from scratch.
+End-to-end Vision-Language-Action (VLA) models bundle perception, reasoning, and motor control into a single network, but that means the camera, kinematics, and training scenarios are all baked in together. This could cause [unexpected](https://www.avikde.me/debugging-as-architecture-insight) and [unresolvable](https://www.avikde.me/a-coding-agent-equivalent-for-robotics) issues when the task, embodiment, or environment change.
 
-This demo combines the strengths of a modular **[Sense-Plan-Act](https://www.avikde.me/p/the-architecture-behind-end-to-end)** architecture with modern AI for higher-level reasoning and cognition. Gemini handles the semantics (what is the scene, what should I do?), while classical geometry and kinematics handle the physical specifics. Each layer is independently swappable, and the AI models don't need to know anything about the robot's embodiment.
+This demo combines the flexible task programming and reasoning of Gemini ER (what is the scene, and what should I do?) and classical camera calibration, kinematics, motion controllers. Each layer is independently swappable, and the AI model doesn't need to know anything about the robot's embodiment. This recreates the modularity of a [Sense-Plan-Act](https://www.avikde.me/the-architecture-behind-end-to-end) architecture while retaining the semantic reasoning of a foundation AI model.
 
 ```
 👁️ Perception  ──►  🧠 Task Reasoning  ──►  📐 Spatial Understanding  ──►  ⚙️ Planning & Obstacle Avoidance  ──►  🤖 Motors
@@ -10,19 +10,17 @@ This demo combines the strengths of a modular **[Sense-Plan-Act](https://www.avi
 ◄──────────── SENSE ────────────────────────────────────── PLAN ──────────────────────────────────────────────────► ACT ►
 ```
 
-Blog posts for context:
-- [The architecture behind “end-to-end” robotics pipelines](https://www.avikde.me/p/the-architecture-behind-end-to-end)
-- [Debugging as architecture insight: dissecting a VLA
-](https://www.avikde.me/p/debugging-as-architecture-insight)
-- [A coding agent equivalent for robotics pipelines
-](https://www.avikde.me/p/a-coding-agent-equivalent-for-roboticse)
-
 ## Web demo (start here)
+
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Try_it_now-2ea44f?style=for-the-badge)](https://avikde.github.io/vla-pipeline/)
+
+[![Demo screenshot](web/snapshot.png)](https://avikde.github.io/vla-pipeline/)
+
+
 
 Try the browser-based demo with MuJoCo WASM + Three.js, no installation required:
 - Grab your own [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) (free tier), or use the pre-baked fallback plan
-- Open https://avikde.github.io/vla-pipeline/ in Chrome
-- Click "Run Task" or "Use Cached Task" and watch the pick-and-place in action!
+- Click "Run Task" or "Use Cached Task" and watch!
 - Use the mouse to orbit the camera, and check the console for debug logs
 
 ## Develop locally (optional)
