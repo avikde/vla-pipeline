@@ -17,21 +17,26 @@ const btnRun = document.getElementById('btn-run');
 const btnPrebaked = document.getElementById('btn-prebaked');
 const apiKeyInput = document.getElementById('api-key');
 const taskInput = document.getElementById('task-input');
-const DEFAULT_TASK = 'Place the red block on the blue target';
+const DEFAULT_TASK = 'Put the blocks away where they belong';
 taskInput.placeholder = DEFAULT_TASK;
 const chkFreeCam = document.getElementById('chk-free-cam');
+const chkDebugWireframes = document.getElementById('chk-debug-wireframes');
 const statusSim = document.getElementById('status-sim');
 const statusStep = document.getElementById('status-step');
 const statusEe = document.getElementById('status-ee');
 const waypointList = document.getElementById('waypoint-list');
+const planTextDiv = document.getElementById('plan-text');
 
 // --- Logging ---
 function log(msg, level = '') {
   console.log(msg);
-  const el = document.createElement('div');
-  el.textContent = msg;
+  const update = msg.startsWith('\r');
+  const text = update ? msg.slice(1) : msg;
+  const last = logDiv.lastElementChild;
+  const el = (update && last) ? last : document.createElement('div');
+  el.textContent = text;
   if (level) el.className = level;
-  logDiv.appendChild(el);
+  if (!update || !last) logDiv.appendChild(el);
   logDiv.scrollTop = logDiv.scrollHeight;
 }
 
@@ -126,7 +131,7 @@ async function init() {
     loadingOverlay.style.display = 'none';
     statusSim.textContent = 'Sim: ready';
     btnRun.disabled = false;
-    log('Scene loaded. Enter API key and click Run, or use cached plan.', 'success');
+    log('Scene loaded. Enter API key and click Run, or Use Cached Task.', 'success');
   } catch (err) {
     loadingText.textContent = `Error: ${err.message}`;
     log(`Init failed: ${err.message}`, 'error');
@@ -288,9 +293,20 @@ async function runPipeline(useApiKey) {
     const apiKey = useApiKey ? apiKeyInput.value.trim() : null;
     const task = taskInput.value.trim() || DEFAULT_TASK;
     const { camPos, camRot, fovyDeg } = mujocoScene.getPrimaryCameraParams();
-    const { detections, planSteps, obstacles: detectedObstacles } = await detectAndPlan(
+    const { detections, planSteps, obstacles: detectedObstacles, planText } = await detectAndPlan(
       apiKey, imageBase64, log, { camPos, camRot, fovyDeg, depthBuffer }, task,
+      (dets, obs) => {
+        mujocoScene.updateObstacleMarkers(obs);
+        mujocoScene.render();
+      },
     );
+
+    // Render plan reasoning text (basic **bold** markdown)
+    if (planText) {
+      planTextDiv.innerHTML = planText
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    }
 
     log(`Detections: ${JSON.stringify(detections)}`, 'info');
     log(`Plan: ${planSteps.length} steps`, 'info');
@@ -348,6 +364,13 @@ btnPrebaked.addEventListener('click', () => {
 chkFreeCam.addEventListener('change', () => {
   if (mujocoScene) {
     mujocoScene.setFreeCam(chkFreeCam.checked);
+    mujocoScene.render();
+  }
+});
+
+chkDebugWireframes.addEventListener('change', () => {
+  if (mujocoScene) {
+    mujocoScene.setDebugWireframes(chkDebugWireframes.checked);
     mujocoScene.render();
   }
 });

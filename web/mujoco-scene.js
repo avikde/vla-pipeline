@@ -257,6 +257,7 @@ export class MujocoScene {
     this._waypointMarkers = [];
     // Obstacle markers (Three.js wireframe cylinders)
     this._obstacleMarkers = [];
+    this._debugWireframes = false;
 
     // Primary camera for Gemini screenshot
     this._primaryCamId = model.cam('primary').id;
@@ -671,6 +672,12 @@ export class MujocoScene {
     }
   }
 
+  /** Show or hide obstacle wireframe markers. */
+  setDebugWireframes(show) {
+    this._debugWireframes = show;
+    for (const m of this._obstacleMarkers) m.visible = show;
+  }
+
   /** Create/update obstacle markers as spheres at detected 3D centers. */
   updateObstacleMarkers(obstacles) {
     // Remove old markers
@@ -687,6 +694,7 @@ export class MujocoScene {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(obs.center[0], obs.center[1], obs.center[2]);
       mesh.scale.set(obs.horizontal_size, obs.horizontal_size, obs.vertical_size);
+      mesh.visible = this._debugWireframes;
       this.scene.add(mesh);
       this._obstacleMarkers.push(mesh);
     }

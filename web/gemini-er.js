@@ -8,6 +8,7 @@
 import {
   pixelToWorld3d, pixelToRay, VLA_WIDTH, VLA_HEIGHT, vec3, sub, norm, dot,
 } from './math-utils.js';
+import { PREBAKED_PLAN_TEXT, PREBAKED_DETECTIONS, PREBAKED_PLAN } from './prebaked-plan.js';
 
 const HEIGHT_OFFSET = 0.15; // metres above table for "high" moves
 const GRASP_HEIGHT = 0.04;  // z for "low" moves (top of block)
@@ -59,30 +60,6 @@ export function bboxToObstacle3d(bbox, point, camPos, camRot, fovyDeg, depthBuff
   return { center, horizontal_size, vertical_size };
 }
 
-// --- Pre-baked plan (fallback when no API key provided) ---
-// Recorded from a successful Gemini ER run on the default scene.
-const PREBAKED_DETECTIONS = [
-  { label: 'red target',    point: [540,  96], box_2d: [437,   0, 649, 203], type: 'target' },
-  { label: 'green block',   point: [629, 230], box_2d: [531, 157, 737, 303], type: 'block' },
-  { label: 'blue target',   point: [435, 311], box_2d: [343, 212, 531, 408], type: 'target' },
-  { label: 'dark cylinder', point: [587, 357], box_2d: [450, 305, 720, 403], type: 'obstacle' },
-  { label: 'dark cylinder', point: [439, 459], box_2d: [314, 419, 582, 497], type: 'obstacle' },
-  { label: 'blue block',    point: [548, 620], box_2d: [456, 560, 649, 688], type: 'block' },
-  { label: 'red block',     point: [757, 583], box_2d: [657, 517, 873, 656], type: 'block' },
-];
-
-const PREBAKED_PLAN = [
-  { function: 'move',            args: [583, 757, true] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move',            args: [583, 757, false] },
-  { function: 'setGripperState', args: [false] },
-  { function: 'move',            args: [583, 757, true] },
-  { function: 'move',            args: [311, 435, true] },
-  { function: 'move',            args: [311, 435, false] },
-  { function: 'setGripperState', args: [true] },
-  { function: 'move',            args: [311, 435, true] },
-];
-
 // --- Gemini API call ---
 
 /**
@@ -128,6 +105,18 @@ async function geminiCall(apiKey, imageBase64, prompt) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
+async function geminiCallWithTicker(apiKey, imageBase64, prompt, log, label) {
+  let dots = 0;
+  const ticker = setInterval(() => {
+    log(`\r${label}${'.'.repeat((++dots % 3) + 1)}`, 'info');
+  }, 500);
+  try {
+    return await geminiCall(apiKey, imageBase64, prompt);
+  } finally {
+    clearInterval(ticker);
+  }
+}
+
 // --- JSON parsing ---
 
 function parseJson(rawText) {
@@ -168,7 +157,7 @@ export function captureSceneImage(renderer) {
  *   Camera parameters and depth buffer for 3D obstacle extraction
  * @returns {Promise<{detections: Array, planSteps: Array, obstacles: Array}>}
  */
-export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task) {
+export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraParams = null, task, onDetected = null) {
   if (!apiKey) {
     log('Using pre-baked plan (no API key)', 'warn');
     const obstacles = [];
@@ -182,7 +171,7 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
       }
       log(`Extracted ${obstacles.length} 3D obstacles from pre-baked detections`, 'info');
     }
-    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles };
+    return { detections: PREBAKED_DETECTIONS, planSteps: PREBAKED_PLAN, obstacles, planText: PREBAKED_PLAN_TEXT };
   }
 
   // Prompt 1: detect all objects with bounding boxes
@@ -202,14 +191,27 @@ export async function detectAndPlan(apiKey, imageBase64, log = () => {}, cameraP
 
     Return JSON: [{"label": ..., "point": [y, x], "box_2d": [top_y, left_x, bottom_y, right_x], "type": ...}, ...]`;
 
-  log('Detecting objects [Gemini]...', 'info');
+  log('Detecting objects...', 'info');
   let t0 = performance.now();
-  const resp1 = await geminiCall(apiKey, imageBase64, prompt1);
+  const resp1 = await geminiCallWithTicker(apiKey, imageBase64, prompt1, log, 'Waiting on Gemini');
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
   log(`Detection response: ${resp1}`, 'info');
   const detections = parseJson(resp1);
 
   log(`Detections: ${detections.length} objects`, 'success');
+
+  // Notify caller after detection, before planning
+  if (onDetected && cameraParams) {
+    const { camPos, camRot, fovyDeg, depthBuffer } = cameraParams;
+    const earlyObstacles = [];
+    for (const det of detections) {
+      if (det.box_2d) {
+        const obs3d = bboxToObstacle3d(det.box_2d, det.point, camPos, camRot, fovyDeg, depthBuffer);
+        earlyObstacles.push({ label: det.label, type: det.type, ...obs3d });
+      }
+    }
+    onDetected(detections, earlyObstacles);
+  }
 
   // Prompt 2: task-level plan using full detection list
   // Gemini detection points are [y, x]; move(x, y) takes x first — swap here.
@@ -238,13 +240,23 @@ where each object has a "function" key and an "args" key (a list, not an object)
 Example: [{"function": "move", "args": [586, 760, true]}, ...]
 Include brief reasoning before the JSON output.`;
 
-  log('Generating plan [Gemini]...', 'info');
+  log('Generating plan...', 'info');
   t0 = performance.now();
-  const resp2 = await geminiCall(apiKey, imageBase64, prompt2);
+  const resp2 = await geminiCallWithTicker(apiKey, imageBase64, prompt2, log, 'Waiting on Gemini');
   log(`Gemini responded in ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'info');
   log(`Plan response: ${resp2}`, 'info');
   const planSteps = parseJson(resp2);
   log(`Plan has ${planSteps.length} steps`, 'success');
+
+  // Extract the reasoning text that precedes the JSON in the response
+  const planText = (() => {
+    const raw = resp2.trim();
+    const fenceIdx = raw.indexOf('```');
+    if (fenceIdx > 0) return raw.slice(0, fenceIdx).trim();
+    const jsonIdx = raw.search(/[\[{]/);
+    if (jsonIdx > 0) return raw.slice(0, jsonIdx).trim();
+    return '';
+  })();
 
   // Extract 3D obstacle cylinders from bounding boxes
   const obstacles = [];
@@ -262,7 +274,7 @@ Include brief reasoning before the JSON output.`;
     }
   }
 
-  return { detections, planSteps, obstacles };
+  return { detections, planSteps, obstacles, planText };
 }
 
 /**

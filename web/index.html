@@ -18,6 +18,7 @@
     }
   </script>
   <script src="coi-serviceworker.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <!-- Asset preloads removed: they compete for HTTP/1.1 connections on local dev -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -48,10 +49,8 @@
 
     .controls {
       display: flex;
-      gap: 0.75rem;
       align-items: center;
-      flex-wrap: wrap;
-      justify-content: center;
+      gap: 0;
       padding: 0.75rem 1rem;
       background: #16213e;
       border-radius: 8px;
@@ -59,9 +58,39 @@
       max-width: 900px;
       width: calc(100% - 2rem);
     }
+    .ctrl-option {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0 1.25rem;
+    }
+    .ctrl-option:first-child { padding-left: 0; }
+    .ctrl-hint {
+      font-size: 0.72rem;
+      color: #666;
+    }
+    .ctrl-divider {
+      padding: 0;
+      border-left: 1px solid #2a3a5c;
+      align-self: stretch;
+    }
+    .ctrl-live {
+      flex: 1;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+      flex-wrap: wrap;
+    }
     .controls label {
       font-size: 0.8rem;
       color: #aaa;
+      white-space: nowrap;
     }
     .controls input[type="password"] {
       background: #0f3460;
@@ -70,7 +99,8 @@
       padding: 0.4rem 0.6rem;
       border-radius: 4px;
       font-size: 0.85rem;
-      width: 280px;
+      flex: 1;
+      min-width: 110px;
     }
     .controls a {
       color: #ffffff;
@@ -87,6 +117,54 @@
       padding: 0.4rem 0.6rem;
       border-radius: 4px;
       font-size: 0.85rem;
+      flex: 1;
+      min-width: 110px;
+    }
+    kbd {
+      font-size: 0.68rem;
+      background: #164a3c;
+      border: 1px solid #2a9d6f;
+      border-bottom-width: 2px;
+      border-radius: 3px;
+      padding: 0.1rem 0.35rem;
+      color: #2a9d6f;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .ctrl-cam {
+      margin-left: auto;
+      padding-left: 1rem;
+      border-left: 1px solid #2a3a5c;
+      align-self: stretch;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+    }
+    .blurb {
+      max-width: 900px;
+      width: calc(100% - 2rem);
+      margin: 0.25rem 1rem 0.75rem;
+      font-size: 0.82rem;
+      color: #aaa;
+      line-height: 1.65;
+    }
+    .blurb p { margin-bottom: 0.6rem; }
+    .blurb a { color: #6ea8fe; text-decoration: none; }
+    .blurb a:hover { text-decoration: underline; }
+    .blurb strong { color: #ccc; }
+    .blurb .mermaid {
+      margin-top: 0.75rem;
+      overflow-x: auto;
+    }
+    /* Mermaid dark theme tweaks */
+    .blurb .mermaid svg { max-width: 100%; }
+
+    @media (max-width: 700px) {
+      .controls { flex-direction: column; align-items: stretch; }
+      .ctrl-divider { border: none; border-top: 1px solid #2a3a5c; padding: 0.4rem 0; }
+      .ctrl-option { padding: 0.5rem 0; }
+      .ctrl-cam { border-left: none; border-top: 1px solid #2a3a5c; margin-left: 0; padding-left: 0; padding-top: 0.5rem; justify-content: center; }
     }
     button {
       background: #0f3460;
@@ -178,7 +256,7 @@
       font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 0.75rem;
       line-height: 1.5;
-      max-height: 300px;
+      max-height: 150px;
       overflow-y: auto;
       color: #bbb;
       word-break: break-word;
@@ -188,10 +266,22 @@
     #log .warn { color: #f0ad4e; }
     #log .error { color: #e74c3c; }
 
+    #plan-text {
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: #ccc;
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    #plan-text strong { color: #e0e0e0; }
+
     #waypoint-list {
       font-size: 0.75rem;
       font-family: 'SF Mono', 'Fira Code', monospace;
       line-height: 1.6;
+      max-height: 150px;
+      overflow-y: auto;
     }
     .wp-item { padding: 0.15rem 0; }
     .wp-item.active { color: #2a9d6f; font-weight: 600; }
@@ -233,17 +323,57 @@
     </p>
   </header>
 
+  <div class="blurb">
+    <div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "13px"}} }%%
+flowchart LR
+    subgraph SENSE["SENSE"]
+        A["👁️ Perception\n―――――\nGemini"]
+        B["🧠 Task Reasoning\n―――――\nGemini"]
+    end
+    subgraph PLAN["PLAN"]
+        C["📐 Spatial Understanding\n―――――\nCamera geometry"]
+        D["⚙️ Planning & Avoidance\n―――――\nKinematics"]
+    end
+    subgraph ACT["ACT"]
+        E["🤖 Motors"]
+    end
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    style A fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style B fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style C fill:#1a4e2e,stroke:#339933,color:#cec
+    style D fill:#1a4e2e,stroke:#339933,color:#cec
+    style E fill:#1a4e2e,stroke:#339933,color:#cec
+    </div>
+  </div>
+
   <div class="controls">
-    <label for="api-key">Gemini API Key (<a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener">free</a>):</label>
-    <input type="password" id="api-key" placeholder="Paste your key (stored locally only)">
-    <label class="checkbox-label">
-      <input type="checkbox" id="chk-free-cam"> Free camera
-    </label>
-    <div style="width:100%;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-      <label for="task-input">Task:</label>
-      <input type="text" id="task-input" style="flex:1;min-width:260px;">
-      <button id="btn-run" class="primary" disabled>⏎ Run Demo</button>
-      <button id="btn-prebaked">Use Cached Plan</button>
+    <div class="ctrl-option">
+      <button id="btn-prebaked" class="primary">Use Cached Task</button>
+      <span class="ctrl-hint">No API key needed</span>
+    </div>
+    <div class="ctrl-divider"></div>
+    <div class="ctrl-option ctrl-live">
+      <div class="ctrl-row">
+        <label for="api-key">Gemini Key (<a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener">free</a>)</label>
+        <input type="password" id="api-key" placeholder="Paste your key (stored locally only)">
+      </div>
+      <div class="ctrl-row">
+        <label for="task-input">Task</label>
+        <input type="text" id="task-input">
+        <button id="btn-run" class="primary" disabled><kbd>↵</kbd> Run Task</button>
+      </div>
+    </div>
+    <div class="ctrl-cam">
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-free-cam"> Free camera
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-debug-wireframes"> Debug wireframes
+      </label>
     </div>
   </div>
 
@@ -256,6 +386,10 @@
       </div>
     </div>
     <div class="sidebar">
+      <div class="panel">
+        <h3>Reasoning</h3>
+        <div id="plan-text"><em style="color:#555">No plan yet</em></div>
+      </div>
       <div class="panel">
         <h3>Waypoints</h3>
         <div id="waypoint-list"><em style="color:#555">No plan yet</em></div>
@@ -281,6 +415,7 @@
     }
   }
   </script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
   <script type="module" src="main.js"></script>
 </body>
 </html>
