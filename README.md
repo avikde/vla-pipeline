@@ -23,11 +23,11 @@ flowchart LR
     SU --> PA
     PA --> M
 
-    style P fill:#ADD8E6,stroke:#6699CC
-    style TR fill:#ADD8E6,stroke:#6699CC
-    style SU fill:#90EE90,stroke:#339933
-    style PA fill:#90EE90,stroke:#339933
-    style M fill:#90EE90,stroke:#339933
+    style P fill:#2563eb,stroke:#1d4ed8,color:#fff
+    style TR fill:#2563eb,stroke:#1d4ed8,color:#fff
+    style SU fill:#16a34a,stroke:#15803d,color:#fff
+    style PA fill:#16a34a,stroke:#15803d,color:#fff
+    style M fill:#16a34a,stroke:#15803d,color:#fff
 ```
 
 ## Web demo (start here)
