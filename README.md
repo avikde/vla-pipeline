@@ -2,15 +2,15 @@
 
 End-to-end Vision-Language-Action (VLA) models bundle perception, reasoning, and motor control into a single network, but that means the camera, kinematics, and training scenarios are all baked in together. This could cause [unexpected](https://www.avikde.me/debugging-as-architecture-insight) and [unresolvable](https://www.avikde.me/a-coding-agent-equivalent-for-robotics) issues when the task, embodiment, or environment change.
 
-This demo combines the flexible task programming and reasoning of Gemini ER (what is the scene, and what should I do?) and classical camera calibration, kinematics, motion controllers. Each layer is independently swappable, and the AI model doesn't need to know anything about the robot's embodiment. This recreates the modularity of a [Sense-Plan-Act](https://www.avikde.me/the-architecture-behind-end-to-end) architecture while retaining the semantic reasoning of a foundation AI model.
+This demo combines the flexible task programming and reasoning of Gemini ER (what is the scene, and what should I do?) and classical camera calibration, kinematics, motion controllers. Gemini blocks are blue, and classical blocks are green. Each layer is independently swappable, and the AI model doesn't need to know anything about the robot's embodiment. This recreates the modularity of a [Sense-Plan-Act](https://www.avikde.me/the-architecture-behind-end-to-end) architecture while retaining the semantic reasoning of a foundation AI model.
 
 ```mermaid
 flowchart LR
     subgraph SENSE["SENSE"]
         P["👁️ Perception\n(Gemini)"]
-        TR["🧠 Task Reasoning\n(Gemini)"]
     end
     subgraph PLAN["PLAN"]
+        TR["🧠 Task Reasoning\n(Gemini)"]
         SU["📐 Spatial Understanding\n(camera geometry)"]
         PA["⚙️ Planning & Avoidance\n(kinematics)"]
     end
