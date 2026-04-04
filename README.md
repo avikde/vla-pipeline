@@ -6,16 +6,16 @@ This demo combines the flexible task programming and reasoning of Gemini ER (wha
 
 ```mermaid
 flowchart LR
-    subgraph SENSE["SENSE"]
-        P["👁️ Perception\n(Gemini)"]
+    subgraph SENSE("SENSE")
+        P("👁️ Perception\n(Gemini)")
     end
-    subgraph PLAN["PLAN"]
-        TR["🧠 Task Reasoning\n(Gemini)"]
-        SU["📐 Spatial Understanding\n(camera geometry)"]
-        PA["⚙️ Planning & Avoidance\n(kinematics)"]
+    subgraph PLAN("PLAN")
+        TR("🧠 Task\nReasoning\n(Gemini)")
+        SU("📐 Spatial\nUnderstanding\n(camera geometry)")
+        PA("⚙️ Planning\n& Avoidance\n(kinematics)")
     end
-    subgraph ACT["ACT"]
-        M["🤖 Motors"]
+    subgraph ACT("ACT")
+        M("🤖 Motors")
     end
 
     P --> TR
