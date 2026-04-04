@@ -6,28 +6,29 @@ This demo combines the flexible task programming and reasoning of Gemini ER (wha
 
 ```mermaid
 flowchart LR
-    subgraph SENSE("SENSE")
+    subgraph SENSE["SENSE"]
         P("👁️ Perception\n(Gemini)")
     end
-    subgraph PLAN("PLAN")
+    subgraph PLAN["PLAN"]
         TR("🧠 Task\nReasoning\n(Gemini)")
-        SU("📐 Spatial\nUnderstanding\n(camera geometry)")
+        SU("📐 Spatial\nUnderstanding\n(camera geom.)")
         PA("⚙️ Planning\n& Avoidance\n(kinematics)")
     end
-    subgraph ACT("ACT")
+    subgraph ACT["ACT"]
         M("🤖 Motors")
     end
-
     P --> TR
     TR --> SU
     SU --> PA
     PA --> M
-
-    style P fill:#2563eb,stroke:#1d4ed8,color:#fff
-    style TR fill:#2563eb,stroke:#1d4ed8,color:#fff
-    style SU fill:#16a34a,stroke:#15803d,color:#fff
-    style PA fill:#16a34a,stroke:#15803d,color:#fff
-    style M fill:#16a34a,stroke:#15803d,color:#fff
+    style P fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style TR fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style SU fill:#1a4e2e,stroke:#339933,color:#cec
+    style PA fill:#1a4e2e,stroke:#339933,color:#cec
+    style M fill:#1a4e2e,stroke:#339933,color:#cec
+    style SENSE fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
+    style PLAN fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
+    style ACT fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
 ```
 
 ## Web demo (start here)
