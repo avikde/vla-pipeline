@@ -2,32 +2,33 @@
 
 End-to-end Vision-Language-Action (VLA) models bundle perception, reasoning, and motor control into a single network, but that means the camera, kinematics, and training scenarios are all baked in together. This could cause [unexpected](https://www.avikde.me/debugging-as-architecture-insight) and [unresolvable](https://www.avikde.me/a-coding-agent-equivalent-for-robotics) issues when the task, embodiment, or environment change.
 
-This demo combines the flexible task programming and reasoning of Gemini ER (what is the scene, and what should I do?) and classical camera calibration, kinematics, motion controllers. Each layer is independently swappable, and the AI model doesn't need to know anything about the robot's embodiment. This recreates the modularity of a [Sense-Plan-Act](https://www.avikde.me/the-architecture-behind-end-to-end) architecture while retaining the semantic reasoning of a foundation AI model.
+This demo combines the flexible task programming and reasoning of Gemini ER (what is the scene, and what should I do?) and classical camera calibration, kinematics, motion controllers. Gemini blocks are blue, and classical blocks are green. Each layer is independently swappable, and the AI model doesn't need to know anything about the robot's embodiment. This recreates the modularity of a [Sense-Plan-Act](https://www.avikde.me/the-architecture-behind-end-to-end) architecture while retaining the semantic reasoning of a foundation AI model.
 
 ```mermaid
 flowchart LR
     subgraph SENSE["SENSE"]
-        P["👁️ Perception\n(Gemini)"]
-        TR["🧠 Task Reasoning\n(Gemini)"]
+        P("👁️ Perception\n(Gemini)")
     end
     subgraph PLAN["PLAN"]
-        SU["📐 Spatial Understanding\n(camera geometry)"]
-        PA["⚙️ Planning & Avoidance\n(kinematics)"]
+        TR("🧠 Task\nReasoning\n(Gemini)")
+        SU("📐 Spatial\nUnderstanding\n(camera geom.)")
+        PA("⚙️ Planning\n& Avoidance\n(kinematics)")
     end
     subgraph ACT["ACT"]
-        M["🤖 Motors"]
+        M("🤖 Motors")
     end
-
     P --> TR
     TR --> SU
     SU --> PA
     PA --> M
-
-    style P fill:#2563eb,stroke:#1d4ed8,color:#fff
-    style TR fill:#2563eb,stroke:#1d4ed8,color:#fff
-    style SU fill:#16a34a,stroke:#15803d,color:#fff
-    style PA fill:#16a34a,stroke:#15803d,color:#fff
-    style M fill:#16a34a,stroke:#15803d,color:#fff
+    style P fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style TR fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style SU fill:#1a4e2e,stroke:#339933,color:#cec
+    style PA fill:#1a4e2e,stroke:#339933,color:#cec
+    style M fill:#1a4e2e,stroke:#339933,color:#cec
+    style SENSE fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
+    style PLAN fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
+    style ACT fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
 ```
 
 ## Web demo (start here)

@@ -328,25 +328,28 @@
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "13px"}} }%%
 flowchart LR
     subgraph SENSE["SENSE"]
-        A["👁️ Perception\n―――――\nGemini"]
-        B["🧠 Task Reasoning\n―――――\nGemini"]
+        P("👁️ Perception\n(Gemini)")
     end
     subgraph PLAN["PLAN"]
-        C["📐 Spatial Understanding\n―――――\nCamera geometry"]
-        D["⚙️ Planning & Avoidance\n―――――\nKinematics"]
+        TR("🧠 Task\nReasoning\n(Gemini)")
+        SU("📐 Spatial\nUnderstanding\n(camera geom.)")
+        PA("⚙️ Planning\n& Avoidance\n(kinematics)")
     end
     subgraph ACT["ACT"]
-        E["🤖 Motors"]
+        M("🤖 Motors")
     end
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    style A fill:#1a4a6e,stroke:#6699CC,color:#cce
-    style B fill:#1a4a6e,stroke:#6699CC,color:#cce
-    style C fill:#1a4e2e,stroke:#339933,color:#cec
-    style D fill:#1a4e2e,stroke:#339933,color:#cec
-    style E fill:#1a4e2e,stroke:#339933,color:#cec
+    P --> TR
+    TR --> SU
+    SU --> PA
+    PA --> M
+    style P fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style TR fill:#1a4a6e,stroke:#6699CC,color:#cce
+    style SU fill:#1a4e2e,stroke:#339933,color:#cec
+    style PA fill:#1a4e2e,stroke:#339933,color:#cec
+    style M fill:#1a4e2e,stroke:#339933,color:#cec
+    style SENSE fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
+    style PLAN fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
+    style ACT fill:none,stroke:#666,stroke-dasharray: 5 5,stroke-width: 2px
     </div>
   </div>
 
